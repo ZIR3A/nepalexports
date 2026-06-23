@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Search, ShoppingBag, Heart, User, Menu, X } from "lucide-react";
 import { PRODUCTS } from "../data/products";
+import { ThemeToggle } from "./ui/ThemeToggle";
 
 const fonts = `
   body { font-family: 'DM Sans', sans-serif; }
@@ -93,6 +94,7 @@ export default function Navbar({ page, setPage, cartCount, wishlistCount }) {
                 </span>
               )}
             </button>
+            <ThemeToggle />
             <button className="lg:hidden p-2 text-muted-foreground hover:text-foreground" onClick={() => setMenuOpen(true)}>
               <Menu size={18} />
             </button>

@@ -1,5 +1,6 @@
 import { AuthProvider } from "@/components/providers/AuthProvider";
 import { AppProvider } from "@/context/AppContext";
+import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import AppLayout from "@/components/AppLayout";
 import "./globals.css";
 
@@ -43,7 +44,9 @@ export default function RootLayout({ children }) {
       <body className="antialiased">
         <AuthProvider>
           <AppProvider>
-            <AppLayout>{children}</AppLayout>
+            <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
+              <AppLayout>{children}</AppLayout>
+            </ThemeProvider>
           </AppProvider>
         </AuthProvider>
       </body>
