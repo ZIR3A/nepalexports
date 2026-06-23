@@ -8,7 +8,7 @@ import { useAppContext } from "@/context/AppContext";
 export default function AppLayout({ children }) {
   const { page, setPage, cart, wishlist } = useAppContext();
 
-  const isFullscreen = page === "admin" || page === "auth";
+  const isFullscreen = page.startsWith("admin") || page === "auth";
 
   return (
     <div className="min-h-screen bg-background text-foreground" style={{ fontFamily: "'DM Sans', sans-serif" }}>
@@ -22,13 +22,13 @@ export default function AppLayout({ children }) {
       )}
 
         <motion.div
-          key={page}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.2 }}
-        >
-          {children}
-        </motion.div>
+        key={page.startsWith("admin") ? "admin" : page}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.2 }}
+      >
+        {children}
+      </motion.div>
 
       {!isFullscreen && <Footer setPage={setPage} />}
 

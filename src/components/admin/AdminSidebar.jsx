@@ -1,6 +1,10 @@
+import { usePathname } from "next/navigation";
+import Link from "next/link";
 import { BarChart2, Package, Grid, User, List, MapPin, TrendingUp, CreditCard, Settings, ArrowRight } from "lucide-react";
 
-export default function AdminSidebar({ activeNav, setActiveNav, setPage }) {
+export default function AdminSidebar() {
+  const pathname = usePathname();
+
   const navSections = [
     {
       title: "Main",
@@ -47,20 +51,23 @@ export default function AdminSidebar({ activeNav, setActiveNav, setPage }) {
           <div key={section.title}>
             <p className="font-mono text-[9px] tracking-[0.18em] uppercase text-muted-foreground px-2 mb-2">{section.title}</p>
             <div className="space-y-0.5">
-              {section.items.map(item => (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveNav(item.id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-colors ${
-                    activeNav === item.id
-                      ? "bg-foreground/10 text-foreground border-l-2 border-accent"
-                      : "text-muted-foreground hover:text-foreground hover:bg-foreground/5"
-                  }`}
-                >
-                  <item.icon size={14} />
-                  {item.label}
-                </button>
-              ))}
+              {section.items.map(item => {
+                const isActive = pathname === `/admin/${item.id}` || (item.id === "dashboard" && pathname === "/admin");
+                return (
+                  <Link
+                    key={item.id}
+                    href={item.id === "dashboard" ? "/admin" : `/admin/${item.id}`}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-colors ${
+                      isActive
+                        ? "bg-foreground/10 text-foreground border-l-2 border-accent"
+                        : "text-muted-foreground hover:text-foreground hover:bg-foreground/5 border-l-2 border-transparent"
+                    }`}
+                  >
+                    <item.icon size={14} />
+                    {item.label}
+                  </Link>
+                );
+              })}
             </div>
           </div>
         ))}
@@ -76,13 +83,13 @@ export default function AdminSidebar({ activeNav, setActiveNav, setPage }) {
             <p className="font-mono text-[9px] text-muted-foreground">Super Admin</p>
           </div>
         </div>
-        <button
-          onClick={() => setPage("home")}
+        <Link
+          href="/"
           className="w-full flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
         >
           <ArrowRight size={12} className="rotate-180" />
           Back to Store
-        </button>
+        </Link>
       </div>
     </aside>
   );

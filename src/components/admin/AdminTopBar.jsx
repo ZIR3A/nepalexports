@@ -1,6 +1,10 @@
 import { Search, Bell } from "lucide-react";
+import { usePathname } from "next/navigation";
 
-export default function AdminTopBar({ activeNav }) {
+export default function AdminTopBar() {
+  const pathname = usePathname();
+  const activeNav = pathname === "/admin" ? "dashboard" : pathname.split('/').pop();
+
   return (
     <div className="sticky top-0 z-30 bg-background/95 backdrop-blur border-b border-border px-8 py-4 flex items-center justify-between">
       <div>

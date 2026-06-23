@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { writeFile, mkdir, unlink } from "fs/promises";
-import { join } from "path";
-import { existsSync } from "fs";
+import { put, del } from "@vercel/blob";
 
 export async function POST(req) {
   try {
@@ -12,26 +10,18 @@ export async function POST(req) {
       return NextResponse.json({ error: "No files received." }, { status: 400 });
     }
 
-    const buffer = Buffer.from(await file.arrayBuffer());
+    // Generate a unique filename to prevent collisions
     const filename = `${Date.now()}_${file.name.replace(/\s+/g, '_')}`;
-    
-    // In production, you would upload this buffer to Vercel Blob, AWS S3, etc.
-    // For local development, we save to the public/uploads directory
-    const uploadDir = join(process.cwd(), "public", "uploads");
-    
-    if (!existsSync(uploadDir)) {
-      await mkdir(uploadDir, { recursive: true });
-    }
 
-    const filePath = join(uploadDir, filename);
-    await writeFile(filePath, buffer);
+    // Upload to Vercel Blob
+    const blob = await put(filename, file, {
+      access: 'public',
+    });
 
-    const fileUrl = `/uploads/${filename}`;
-
-    return NextResponse.json({ success: true, url: fileUrl });
+    return NextResponse.json({ success: true, url: blob.url });
   } catch (error) {
-    console.error("Upload error:", error);
-    return NextResponse.json({ error: "Failed to upload file." }, { status: 500 });
+    console.error("Vercel Blob Upload error:", error);
+    return NextResponse.json({ error: "Failed to upload file to Vercel Blob." }, { status: 500 });
   }
 }
 
@@ -40,20 +30,16 @@ export async function DELETE(req) {
     const body = await req.json();
     const { url } = body;
     
-    if (!url || !url.startsWith('/uploads/')) {
+    if (!url) {
       return NextResponse.json({ error: "Invalid file URL." }, { status: 400 });
     }
     
-    const filename = url.replace('/uploads/', '');
-    const filePath = join(process.cwd(), "public", "uploads", filename);
-    
-    if (existsSync(filePath)) {
-      await unlink(filePath);
-    }
+    // Delete from Vercel Blob
+    await del(url);
     
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Delete upload error:", error);
-    return NextResponse.json({ error: "Failed to delete file." }, { status: 500 });
+    console.error("Vercel Blob Delete error:", error);
+    return NextResponse.json({ error: "Failed to delete file from Vercel Blob." }, { status: 500 });
   }
 }

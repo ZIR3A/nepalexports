@@ -6,6 +6,7 @@ import Warehouse from '@/backend/models/Warehouse';
 import { unlink } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import { del } from '@vercel/blob';
 
 export async function GET(req, { params }) {
   try {
@@ -72,14 +73,18 @@ export async function DELETE(req, { params }) {
       return NextResponse.json({ message: 'Product not found' }, { status: 404 });
     }
 
-    // Delete associated media files from local storage if applicable
+    // Delete associated media files from local or cloud storage
     if (product.media && product.media.length > 0) {
       for (const m of product.media) {
-        if (m.url && m.url.startsWith('/uploads/')) {
-          const filename = m.url.replace('/uploads/', '');
-          const filePath = join(process.cwd(), "public", "uploads", filename);
-          if (existsSync(filePath)) {
-            await unlink(filePath).catch(err => console.error("Failed to delete local media:", err));
+        if (m.url) {
+          if (m.url.startsWith('/uploads/')) {
+            const filename = m.url.replace('/uploads/', '');
+            const filePath = join(process.cwd(), "public", "uploads", filename);
+            if (existsSync(filePath)) {
+              await unlink(filePath).catch(err => console.error("Failed to delete local media:", err));
+            }
+          } else if (m.url.includes('blob.vercel-storage.com')) {
+            await del(m.url).catch(err => console.error("Failed to delete Vercel Blob media:", err));
           }
         }
       }
