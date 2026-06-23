@@ -16,12 +16,16 @@ export async function GET(req) {
       query.category = category;
     }
     
+    const admin = searchParams.get('admin');
+    
     if (flashSale === 'true') {
       query['flashSale.isActive'] = true;
       query['flashSale.expiresAt'] = { $gt: new Date() };
     }
     
-    query.isActive = true;
+    if (admin !== 'true') {
+      query.isActive = true;
+    }
 
     const products = await Product.find(query).sort({ createdAt: -1 });
 

@@ -44,6 +44,24 @@ export async function GET(req, { params }) {
   }
 }
 
+export async function PUT(req, { params }) {
+  try {
+    await connectToDatabase();
+    const { id } = await params;
+    const body = await req.json();
+
+    const product = await Product.findByIdAndUpdate(id, body, { new: true, runValidators: true });
+    if (!product) {
+      return NextResponse.json({ message: 'Product not found' }, { status: 404 });
+    }
+
+    return NextResponse.json({ message: 'Product updated successfully', product, success: true });
+  } catch (error) {
+    console.error('Update Product Error:', error);
+    return NextResponse.json({ message: 'Internal server error' }, { status: 500 });
+  }
+}
+
 export async function DELETE(req, { params }) {
   try {
     await connectToDatabase();
