@@ -1,6 +1,6 @@
 "use client";
 
-import { AnimatePresence, motion } from "motion/react";
+import { motion } from "motion/react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { useAppContext } from "@/context/AppContext";
@@ -21,17 +21,14 @@ export default function AppLayout({ children }) {
         />
       )}
 
-      <AnimatePresence mode="wait">
         <motion.div
           key={page}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
         >
           {children}
         </motion.div>
-      </AnimatePresence>
 
       {!isFullscreen && <Footer setPage={setPage} />}
 
