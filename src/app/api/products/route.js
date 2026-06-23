@@ -27,7 +27,10 @@ export async function GET(req) {
       query.isActive = true;
     }
 
-    const products = await Product.find(query).sort({ createdAt: -1 });
+    const products = await Product.find(query)
+      .populate('mainCategory', 'name slug productType')
+      .populate('subCategory', 'name slug')
+      .sort({ createdAt: -1 });
 
     return NextResponse.json(products);
   } catch (error) {
@@ -42,7 +45,38 @@ export async function POST(req) {
     await connectToDatabase();
     
     const body = await req.json();
-    const product = await Product.create(body);
+    
+    // Extract variants so we can handle inventory mapping
+    const rawVariants = body.variants || [];
+    
+    // Strip inventoryData before saving to Product model to avoid schema validation issues
+    const productVariants = rawVariants.map(v => {
+      const { inventoryData, ...rest } = v;
+      return rest;
+    });
+
+    const productPayload = { ...body, variants: productVariants };
+    const product = await Product.create(productPayload);
+    
+    // After product is created, product.variants will have generated _ids
+    // Map the inventoryData to the new Inventory collection
+    for (let i = 0; i < rawVariants.length; i++) {
+      const rawVariant = rawVariants[i];
+      const savedVariant = product.variants[i];
+      
+      if (rawVariant.inventoryData && Object.keys(rawVariant.inventoryData).length > 0) {
+        for (const [warehouseId, quantity] of Object.entries(rawVariant.inventoryData)) {
+          if (quantity > 0) {
+            await Inventory.create({
+              product: product._id,
+              variantId: savedVariant._id,
+              warehouse: warehouseId,
+              quantity: quantity
+            });
+          }
+        }
+      }
+    }
     
     return NextResponse.json({ message: 'Product created successfully', product }, { status: 201 });
   } catch (error) {

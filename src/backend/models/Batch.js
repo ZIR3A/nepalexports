@@ -33,6 +33,8 @@ const BatchSchema = new mongoose.Schema({
     min: 0,
     default: 0,
   },
+  supplier: { type: String },
+  purchaseReference: { type: String },
 }, { timestamps: true });
 
 // Ensure unique index for batch number per product variant and warehouse

@@ -1,6 +1,6 @@
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { BarChart2, Package, Grid, User, List, MapPin, TrendingUp, CreditCard, Settings, ArrowRight } from "lucide-react";
+import { BarChart2, Package, Grid, User, List, MapPin, TrendingUp, CreditCard, Settings, ArrowRight, FolderTree, ArrowRightLeft } from "lucide-react";
 
 export default function AdminSidebar() {
   const pathname = usePathname();
@@ -12,6 +12,7 @@ export default function AdminSidebar() {
         { id: "dashboard", label: "Dashboard", icon: BarChart2 },
         { id: "orders", label: "Orders", icon: Package },
         { id: "products", label: "Products", icon: Grid },
+        { id: "categories", label: "Categories", icon: FolderTree },
         { id: "customers", label: "Customers", icon: User },
       ]
     },
@@ -20,6 +21,7 @@ export default function AdminSidebar() {
       items: [
         { id: "inventory", label: "Inventory", icon: List },
         { id: "warehouses", label: "Warehouses", icon: MapPin },
+        { id: "transfers", label: "Transfers", icon: ArrowRightLeft },
       ]
     },
     {

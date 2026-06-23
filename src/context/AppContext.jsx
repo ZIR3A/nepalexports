@@ -10,6 +10,7 @@ export function AppProvider({ children }) {
   const pathname = usePathname();
   const [cart, setCart] = useState([]);
   const [wishlist, setWishlist] = useState([1, 3]);
+  const [userCountry, setUserCountry] = useState("GB");
 
   const toggleWishlist = (id) => {
     setWishlist(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -32,6 +33,8 @@ export function AppProvider({ children }) {
     setCart,
     wishlist,
     toggleWishlist,
+    userCountry,
+    setUserCountry,
   };
 
   return (

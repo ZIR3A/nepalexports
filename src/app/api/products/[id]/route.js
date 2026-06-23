@@ -14,7 +14,7 @@ export async function GET(req, { params }) {
     
     const { id } = await params;
 
-    const product = await Product.findById(id);
+    const product = await Product.findById(id).populate('mainCategory').populate('subCategory');
     if (!product) {
       return NextResponse.json({ message: 'Product not found' }, { status: 404 });
     }
@@ -28,16 +28,35 @@ export async function GET(req, { params }) {
 
     inventory.forEach(inv => {
       totalStock += inv.quantity;
-      if (!inventoryMap[inv.variantId]) {
-        inventoryMap[inv.variantId] = 0;
+      const vid = String(inv.variantId);
+      if (!inventoryMap[vid]) {
+        inventoryMap[vid] = { total: 0, byCountry: { NP: 0, GB: 0, Transit: 0 }, byWarehouse: {} };
       }
-      inventoryMap[inv.variantId] += inv.quantity;
+      inventoryMap[vid].total += inv.quantity;
+      
+      // Per-warehouse mapping (for admin edit form)
+      const whId = String(inv.warehouse?._id);
+      inventoryMap[vid].byWarehouse[whId] = (inventoryMap[vid].byWarehouse[whId] || 0) + inv.quantity;
+      
+      const whName = inv.warehouse?.name?.toLowerCase() || '';
+      const whCountry = inv.warehouse?.country || '';
+
+      if (whName.includes('transit')) {
+        inventoryMap[vid].byCountry.Transit += inv.quantity;
+      } else if (whCountry === 'Nepal' || whName.includes('nepal')) {
+        inventoryMap[vid].byCountry.NP += inv.quantity;
+      } else if (whCountry === 'United Kingdom' || whName.includes('uk')) {
+        inventoryMap[vid].byCountry.GB += inv.quantity;
+      }
     });
 
+    // Convert product to plain object — toJSON flattens Mongoose Maps (including nested variant.attributes)
+    const productObj = product.toJSON();
+
     return NextResponse.json({ 
-      ...product.toObject(), 
+      ...productObj, 
       totalStock,
-      inventoryMap // maps variantId to total quantity
+      inventoryMap
     });
   } catch (error) {
     console.error('Fetch Product Detail Error:', error);
@@ -51,9 +70,43 @@ export async function PUT(req, { params }) {
     const { id } = await params;
     const body = await req.json();
 
-    const product = await Product.findByIdAndUpdate(id, body, { new: true, runValidators: true });
+    // Extract variants so we can handle inventory mapping
+    const rawVariants = body.variants || [];
+    
+    // Strip inventoryData before saving to Product model
+    const productVariants = rawVariants.map(v => {
+      const { inventoryData, ...rest } = v;
+      return rest;
+    });
+
+    const productPayload = { ...body, variants: productVariants };
+
+    const product = await Product.findByIdAndUpdate(id, productPayload, { new: true, runValidators: true });
     if (!product) {
       return NextResponse.json({ message: 'Product not found' }, { status: 404 });
+    }
+
+    // Map the inventoryData to the new Inventory collection
+    // First, optionally clear existing inventory for this product if we are completely resetting it?
+    // Or just update/create based on the new payload. For simplicity, we can remove old inventory and recreate
+    await Inventory.deleteMany({ product: id });
+    
+    for (let i = 0; i < rawVariants.length; i++) {
+      const rawVariant = rawVariants[i];
+      const savedVariant = product.variants[i];
+      
+      if (rawVariant.inventoryData && Object.keys(rawVariant.inventoryData).length > 0) {
+        for (const [warehouseId, quantity] of Object.entries(rawVariant.inventoryData)) {
+          if (quantity > 0) {
+            await Inventory.create({
+              product: product._id,
+              variantId: savedVariant._id,
+              warehouse: warehouseId,
+              quantity: quantity
+            });
+          }
+        }
+      }
     }
 
     return NextResponse.json({ message: 'Product updated successfully', product, success: true });

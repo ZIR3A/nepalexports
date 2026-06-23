@@ -7,10 +7,12 @@ import ProductCard from "../ProductCard";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import StarRating from "../StarRating";
+import { useAppContext } from "../../context/AppContext";
 
 export default function ProductDetailPage({ setPage, cart, setCart, wishlist, toggleWishlist }) {
   const params = useParams();
   const id = params?.id;
+  const { userCountry } = useAppContext();
 
   const [product, setProduct] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -33,9 +35,9 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
         if (!res.ok) throw new Error("Failed to fetch product details");
         const data = await res.json();
         
-        // Extract sizes and colors from variants
-        const colors = [...new Set(data.variants.map(v => v.color).filter(c => c && c !== "N/A"))];
-        const sizes = [...new Set(data.variants.map(v => v.size).filter(s => s && s !== "N/A"))];
+        // Extract sizes and colors from new variants attributes map
+        const colors = [...new Set(data.variants.map(v => v.attributes?.color).filter(c => c && c !== "N/A"))];
+        const sizes = [...new Set(data.variants.map(v => v.attributes?.size).filter(s => s && s !== "N/A"))];
         
         const mappedProduct = {
           id: data._id,
@@ -47,8 +49,12 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
           sizes: sizes.length > 0 ? sizes : ["Standard"],
           rating: 5,
           reviews: Math.floor(Math.random() * 100),
-          category: data.category,
-          sku: data.variants[0]?.sku || "N/A"
+          category: data.mainCategory?.name || data.category,
+          sku: data.sku || data.variants[0]?.sku || "N/A",
+          attributes: data.attributes || {},
+          availableCountries: data.availableCountries || ["GB", "NP"],
+          inventoryMap: data.inventoryMap || {},
+          variantsData: data.variants || []
         };
         
         setProduct(mappedProduct);
@@ -86,6 +92,19 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
           <h2 className="text-2xl font-light mb-4">Product Not Found</h2>
           <p className="text-muted-foreground mb-6">{error || "The product you're looking for doesn't exist."}</p>
           <Button onClick={() => setPage("shop")}>Back to Shop</Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Check if product is available in user's country
+  if (product.availableCountries && product.availableCountries.length > 0 && !product.availableCountries.includes(userCountry)) {
+    return (
+      <div className="pt-[72px] min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-2xl font-light mb-4">Not Available</h2>
+          <p className="text-muted-foreground mb-6">This product is not currently available for shipping to your region.</p>
+          <Button onClick={() => setPage("shop")}>Continue Shopping</Button>
         </div>
       </div>
     );
@@ -154,8 +173,42 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
             <h1 className="font-display text-4xl font-light mb-3">{product.name}</h1>
             <StarRating rating={product.rating} count={product.reviews} />
 
-            <div className="flex items-center gap-4 mt-4 pb-6 border-b border-border">
+            <div className="flex items-center gap-4 mt-4 pb-4">
               <span className="font-mono text-3xl font-medium text-foreground">रु{product.price}</span>
+            </div>
+
+            {/* Smart Availability Logic */}
+            <div className="pb-6 border-b border-border">
+              {(() => {
+                // Find selected variant inventory
+                const selectedVariant = product.variantsData?.find(v => v.attributes?.color === selectedColor && v.attributes?.size === selectedSize);
+                const invData = selectedVariant && product.inventoryMap[selectedVariant._id] ? product.inventoryMap[selectedVariant._id] : { total: 0, byCountry: { NP: 0, GB: 0, Transit: 0 } };
+                
+                const localStock = invData.byCountry[userCountry] || 0;
+                const totalOtherStock = invData.total - localStock;
+
+                if (localStock > 0) {
+                  return (
+                    <div className="flex items-center gap-2 text-emerald-600 bg-emerald-500/10 w-fit px-3 py-1.5 rounded-sm">
+                      <Truck size={14} />
+                      <span className="font-mono text-[11px] uppercase tracking-wider">In Stock • Fast Delivery (2-3 Days)</span>
+                    </div>
+                  );
+                } else if (totalOtherStock > 0) {
+                  return (
+                    <div className="flex items-center gap-2 text-amber-600 bg-amber-500/10 w-fit px-3 py-1.5 rounded-sm">
+                      <Truck size={14} />
+                      <span className="font-mono text-[11px] uppercase tracking-wider">Available via Import • Est. 10-14 Days</span>
+                    </div>
+                  );
+                } else {
+                  return (
+                    <div className="flex items-center gap-2 text-red-500 bg-red-500/10 w-fit px-3 py-1.5 rounded-sm">
+                      <span className="font-mono text-[11px] uppercase tracking-wider">Out of Stock</span>
+                    </div>
+                  );
+                }
+              })()}
             </div>
 
             <div className="mt-6 space-y-6">
@@ -229,19 +282,37 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
 
             {/* Actions */}
             <div className="flex gap-3 mt-8">
-              <button
-                onClick={addToCart}
-                className={`flex-1 py-4 font-medium text-sm tracking-wide transition-all ${
-                  added
-                    ? "bg-emerald-700 text-white"
-                    : "bg-foreground text-background hover:bg-foreground/90"
-                }`}
-              >
-                {added ? "✓ Added to Cart" : "Add to Cart"}
-              </button>
-              <Button variant="default" size="lg" onClick={() => { addToCart(); setPage("checkout"); }}>
-                Buy Now
-              </Button>
+              {(() => {
+                const selectedVariant = product.variantsData?.find(v => v.attributes?.color === selectedColor && v.attributes?.size === selectedSize);
+                const invData = selectedVariant && product.inventoryMap[selectedVariant._id] ? product.inventoryMap[selectedVariant._id] : { total: 0 };
+                const outOfStock = invData.total === 0;
+
+                if (outOfStock) {
+                  return (
+                    <Button variant="outline" className="flex-1 py-6 border-foreground/30 text-foreground" onClick={() => alert("We'll notify you when it's back!")}>
+                      Notify Me
+                    </Button>
+                  );
+                }
+
+                return (
+                  <>
+                    <button
+                      onClick={addToCart}
+                      className={`flex-1 py-4 font-medium text-sm tracking-wide transition-all ${
+                        added
+                          ? "bg-emerald-700 text-white"
+                          : "bg-foreground text-background hover:bg-foreground/90"
+                      }`}
+                    >
+                      {added ? "✓ Added to Cart" : "Add to Cart"}
+                    </button>
+                    <Button variant="default" size="lg" onClick={() => { addToCart(); setPage("checkout"); }}>
+                      Buy Now
+                    </Button>
+                  </>
+                );
+              })()}
             </div>
 
             {/* Trust badges */}
@@ -262,7 +333,7 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
             {/* Tabs */}
             <div className="mt-8 border-t border-border">
               <div className="flex border-b border-border">
-                {["description", "shipping"].map(t => (
+                {["description", "details", "shipping"].map(t => (
                   <button
                     key={t}
                     onClick={() => setActiveTab(t)}
@@ -277,6 +348,19 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
               <div className="py-6 text-sm text-muted-foreground leading-relaxed">
                 {activeTab === "description" && (
                   <p>{product.description}</p>
+                )}
+                {activeTab === "details" && (
+                  <div className="grid grid-cols-2 gap-4">
+                    {Object.entries(product.attributes || {}).map(([key, val]) => (
+                      <div key={key} className="flex flex-col">
+                        <span className="font-mono text-[10px] uppercase text-muted-foreground">{key}</span>
+                        <span className="text-foreground">{val}</span>
+                      </div>
+                    ))}
+                    {Object.keys(product.attributes || {}).length === 0 && (
+                      <p>No additional details provided.</p>
+                    )}
+                  </div>
                 )}
                 {activeTab === "shipping" && (
                   <div className="space-y-2">

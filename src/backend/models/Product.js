@@ -1,9 +1,11 @@
 import mongoose from 'mongoose';
 
 const VariantSchema = new mongoose.Schema({
-  size: { type: String }, // e.g., 'S', 'M', 'L', 'XL'
-  color: { type: String }, // e.g., 'Black', 'White', 'Red'
-  sku: { type: String, required: true, unique: true },
+  sku: { type: String, required: true },
+  name: { type: String }, // e.g., "Black - M"
+  priceOverride: { type: Number },
+  localPriceOverride: { type: Number },
+  attributes: { type: Map, of: String }, // Dynamic attributes like { size: 'M', color: 'Black' }
 });
 
 const MediaSchema = new mongoose.Schema({
@@ -20,38 +22,36 @@ const FlashSaleSchema = new mongoose.Schema({
 });
 
 const ProductSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: true,
-    trim: true,
-  },
-  description: {
-    type: String,
-    required: true,
-  },
-  basePrice: {
-    type: Number,
-    required: true,
-    min: 0,
-  },
-  currency: {
-    type: String,
-    default: 'NPR' // Base currency as per PRD
-  },
-  category: {
-    type: String,
-    required: true,
-  },
+  name: { type: String, required: true, trim: true },
+  sku: { type: String, required: true, unique: true },
+  slug: { type: String, required: true, unique: true },
+  shortDescription: { type: String },
+  description: { type: String, required: true },
+  brand: { type: String },
+  
+  mainCategory: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', required: true },
+  subCategory: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' },
+
+  basePrice: { type: Number, required: true, min: 0 },
+  localPrice: { type: Number, min: 0 },
+  currency: { type: String, default: 'NPR' },
+  
   media: [MediaSchema],
   variants: [VariantSchema],
-  isActive: {
-    type: Boolean,
-    default: true,
+  
+  tags: [{ type: String }],
+  countryAvailability: [{ type: String }], // e.g., ['UK', 'NP']
+  
+  seo: {
+    title: { type: String },
+    description: { type: String }
   },
-  flashSale: {
-    type: FlashSaleSchema,
-    default: () => ({})
-  }
+
+  attributes: { type: Map, of: mongoose.Schema.Types.Mixed }, // Dynamic category-specific fields
+
+  isActive: { type: Boolean, default: true },
+  availableCountries: [{ type: String, trim: true }],
+  flashSale: { type: FlashSaleSchema, default: () => ({}) }
 }, { timestamps: true });
 
 export default mongoose.models.Product || mongoose.model('Product', ProductSchema);

@@ -21,6 +21,11 @@ const InventorySchema = new mongoose.Schema({
     min: 0,
     default: 0,
   },
+  reservedQuantity: {
+    type: Number,
+    min: 0,
+    default: 0
+  },
   minimumStockLimit: {
     type: Number,
     default: 10,

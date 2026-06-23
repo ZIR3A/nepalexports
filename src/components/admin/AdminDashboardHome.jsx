@@ -1,8 +1,19 @@
-import { TrendingUp, Package, User, RotateCcw, Eye, Download } from "lucide-react";
+import { useState, useEffect } from "react";
+import { TrendingUp, Package, User, RotateCcw, Eye, Download, AlertTriangle, ArrowRightLeft, Globe } from "lucide-react";
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { SALES_DATA } from "@/data/products";
 
 export default function AdminDashboardHome() {
+  const [invData, setInvData] = useState({
+    totalValue: 0, nepalStock: 0, ukStock: 0, transitStock: 0, lowStockItems: 0, pendingTransfers: 0
+  });
+
+  useEffect(() => {
+    fetch('/api/dashboard/inventory')
+      .then(res => res.json())
+      .then(data => setInvData(data))
+      .catch(console.error);
+  }, []);
   const metrics = [
     { label: "Total Revenue", value: "£61,400", change: "+18.2%", positive: true, icon: TrendingUp },
     { label: "Total Orders", value: "318", change: "+12.4%", positive: true, icon: Package },
@@ -40,6 +51,46 @@ export default function AdminDashboardHome() {
             </span>
           </div>
         ))}
+      </div>
+
+      <h3 className="font-medium text-foreground mb-4 mt-8">Global Logistics & Inventory</h3>
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+        <div className="bg-card border border-border p-5">
+          <div className="flex items-center justify-between mb-4">
+            <span className="font-mono text-[10px] tracking-[0.12em] uppercase text-muted-foreground">Inventory Value</span>
+          </div>
+          <p className="font-mono text-xl font-medium text-foreground">£{(invData.totalValue / 170).toFixed(0)}</p>
+        </div>
+        <div className="bg-card border border-border p-5">
+          <div className="flex items-center justify-between mb-4">
+            <span className="font-mono text-[10px] tracking-[0.12em] uppercase text-muted-foreground">UK Stock</span>
+            <Globe size={14} className="text-muted-foreground" />
+          </div>
+          <p className="font-mono text-xl font-medium text-foreground">{invData.ukStock}</p>
+        </div>
+        <div className="bg-card border border-border p-5">
+          <div className="flex items-center justify-between mb-4">
+            <span className="font-mono text-[10px] tracking-[0.12em] uppercase text-muted-foreground">Nepal Stock</span>
+            <Globe size={14} className="text-muted-foreground" />
+          </div>
+          <p className="font-mono text-xl font-medium text-foreground">{invData.nepalStock}</p>
+        </div>
+        <div className="bg-card border border-border p-5">
+          <div className="flex items-center justify-between mb-4">
+            <span className="font-mono text-[10px] tracking-[0.12em] uppercase text-muted-foreground">Transit Stock</span>
+            <ArrowRightLeft size={14} className="text-yellow-500" />
+          </div>
+          <p className="font-mono text-xl font-medium text-foreground">{invData.transitStock}</p>
+          <span className="font-mono text-[10px] mt-1 text-muted-foreground">{invData.pendingTransfers} pending transfers</span>
+        </div>
+        <div className="bg-card border border-border p-5">
+          <div className="flex items-center justify-between mb-4">
+            <span className="font-mono text-[10px] tracking-[0.12em] uppercase text-muted-foreground">Low Stock</span>
+            <AlertTriangle size={14} className="text-red-500" />
+          </div>
+          <p className="font-mono text-xl font-medium text-foreground">{invData.lowStockItems}</p>
+          <span className="font-mono text-[10px] mt-1 text-red-500">Requires attention</span>
+        </div>
       </div>
 
       <div className="grid lg:grid-cols-3 gap-6 mb-8">

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import connectToDatabase from '@/backend/config/db';
 import Product from '@/backend/models/Product';
 import Warehouse from '@/backend/models/Warehouse';
-import Batch from '@/backend/models/Batch';
+import Inventory from '@/backend/models/Inventory';
 
 export async function POST(req) {
   try {
@@ -42,33 +42,51 @@ export async function POST(req) {
         continue;
       }
 
-      const variant = product.variants.find(v => 
-        (v.size === item.selectedSize || v.size === 'N/A') && 
-        (v.color === item.selectedColor || v.color === 'N/A')
-      );
-
+      // Find the specific variant the user selected
+      const variant = product.variants?.find(v => v.attributes?.color === item.selectedColor && v.attributes?.size === item.selectedSize);
       if (!variant) {
         stockErrors.push(`Variant for ${item.name} (${item.selectedSize}, ${item.selectedColor}) is invalid.`);
         continue;
       }
 
-      // Check stock in warehouse across non-expired batches
-      const validBatches = await Batch.find({
-        product: product._id,
-        variantId: variant._id,
-        warehouse: warehouse._id,
-        $or: [
-          { expiryDate: { $gt: now } },
-          { expiryDate: { $exists: false } },
-          { expiryDate: null }
-        ],
-        quantity: { $gt: 0 }
+      // We prioritize inventory in userCountry. If userCountry has enough stock, we reserve there.
+      // Otherwise we reserve in Transit, or Nepal (import).
+      const inventoryRecords = await Inventory.find({ product: item.id, variantId: variant._id }).populate('warehouse');
+      
+      let requiredQty = item.quantity;
+      
+      // Sort warehouses by priority: userCountry > Transit > Others
+      inventoryRecords.sort((a, b) => {
+        const aCode = (a.warehouse?.country === 'United Kingdom' || a.warehouse?.name?.includes('UK')) ? 'GB' : (a.warehouse?.country === 'Nepal' || a.warehouse?.name?.includes('Nepal')) ? 'NP' : '';
+        const bCode = (b.warehouse?.country === 'United Kingdom' || b.warehouse?.name?.includes('UK')) ? 'GB' : (b.warehouse?.country === 'Nepal' || b.warehouse?.name?.includes('Nepal')) ? 'NP' : '';
+        
+        if (aCode === country) return -1;
+        if (bCode === country) return 1;
+        if (a.warehouse?.name?.toLowerCase().includes('transit')) return -1;
+        if (b.warehouse?.name?.toLowerCase().includes('transit')) return 1;
+        return 0;
       });
 
-      const availableQuantity = validBatches.reduce((sum, batch) => sum + batch.quantity, 0);
+      let reservedForThisItem = 0;
+      const reservationsForItem = [];
 
-      if (availableQuantity < item.quantity) {
-        stockErrors.push(`Only ${availableQuantity} non-expired items left in stock for ${item.name} in your region.`);
+      for (const inv of inventoryRecords) {
+        if (requiredQty === 0) break;
+        
+        const available = inv.quantity - (inv.reservedQuantity || 0);
+        if (available > 0) {
+          const reserveAmt = Math.min(available, requiredQty);
+          reservationsForItem.push({ invId: inv._id, amount: reserveAmt });
+          requiredQty -= reserveAmt;
+          reservedForThisItem += reserveAmt;
+        }
+      }
+
+      if (requiredQty > 0) {
+        stockErrors.push(`Only ${reservedForThisItem} items left in stock for ${item.name}.`);
+      } else {
+        // We will apply reservations if everything is successful
+        item.reservations = reservationsForItem;
       }
 
       // Determine the active price (checking for flash sale)
@@ -90,6 +108,18 @@ export async function POST(req) {
 
     if (stockErrors.length > 0) {
       return NextResponse.json({ error: "Stock validation failed", details: stockErrors }, { status: 400 });
+    }
+
+    // Apply Reservations
+    for (const item of validatedItems) {
+      if (item.reservations) {
+        for (const res of item.reservations) {
+          await Inventory.findByIdAndUpdate(res.invId, {
+            $inc: { reservedQuantity: res.amount }
+          });
+        }
+        delete item.reservations; // clean up payload
+      }
     }
 
     // Shipping Rules
