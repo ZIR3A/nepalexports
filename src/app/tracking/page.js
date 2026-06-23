@@ -1,8 +1,8 @@
 "use client";
-import HomePage from "@/components/pages/HomePage";
+import OrderTracking from "@/components/pages/OrderTracking";
 import { useAppContext } from "@/context/AppContext";
 
 export default function Page() {
   const props = useAppContext();
-  return <HomePage {...props} />;
+  return <OrderTracking {...props} />;
 }

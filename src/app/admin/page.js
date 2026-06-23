@@ -1,8 +1,8 @@
 "use client";
-import HomePage from "@/components/pages/HomePage";
+import AdminDashboard from "@/components/pages/AdminDashboard";
 import { useAppContext } from "@/context/AppContext";
 
 export default function Page() {
   const props = useAppContext();
-  return <HomePage {...props} />;
+  return <AdminDashboard {...props} />;
 }

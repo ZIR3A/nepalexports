@@ -1,8 +1,8 @@
 "use client";
-import HomePage from "@/components/pages/HomePage";
+import AccountDashboard from "@/components/pages/AccountDashboard";
 import { useAppContext } from "@/context/AppContext";
 
 export default function Page() {
   const props = useAppContext();
-  return <HomePage {...props} />;
+  return <AccountDashboard {...props} />;
 }
