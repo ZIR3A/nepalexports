@@ -3,6 +3,8 @@ import { useRouter } from "next/navigation";
 import { Plus, Loader2, Trash2, Edit, Image as ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
+import { RoleGuard } from "@/components/providers/RoleGuard";
+import { RequireRole } from "@/components/providers/RequireRole";
 
 export default function AdminProducts() {
   const router = useRouter();
@@ -45,15 +47,19 @@ export default function AdminProducts() {
   };
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-8">
+    <RoleGuard allowedRoles={['super_admin', 'marketing_admin']}>
+      <div>
+        <div className="flex items-center justify-between mb-8">
         <div>
           <h2 className="font-display text-2xl font-light">Product Management</h2>
-          <p className="text-sm text-muted-foreground">Add new products and manage inventory.</p>
+          <p className="text-sm text-muted-foreground">Manage products synced from the WMS.</p>
         </div>
-        <Button onClick={() => router.push('/admin/products/new')} variant="default" size="sm" className="flex items-center gap-2">
-          <Plus size={14} /> Add Product
-        </Button>
+        <RequireRole allowedRoles={['super_admin']}>
+          <Button onClick={simulateWmsSync} disabled={isSyncing} variant="outline" size="sm" className="flex items-center gap-2 border-accent text-accent hover:bg-accent/10">
+            {isSyncing ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} 
+            Simulate WMS Sync
+          </Button>
+        </RequireRole>
       </div>
 
       <div className="bg-card border border-border rounded-lg overflow-hidden">
@@ -100,9 +106,10 @@ export default function AdminProducts() {
             )}
           </TableBody>
         </Table>
+        </div>
+
+
       </div>
-
-
-    </div>
+    </RoleGuard>
   );
 }

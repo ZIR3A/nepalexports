@@ -4,6 +4,8 @@ import { Search, ShoppingBag, Heart, User, Menu, X } from "lucide-react";
 import { PRODUCTS } from "../data/products";
 import { ThemeToggle } from "./ui/ThemeToggle";
 import { useAppContext } from "../context/AppContext";
+import { LocationIndicator } from "./LocationSelector";
+import { useSession } from "next-auth/react";
 
 const fonts = `
   body { font-family: 'DM Sans', sans-serif; }
@@ -20,6 +22,7 @@ export default function Navbar({ page, setPage, cartCount, wishlistCount }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const { userCountry, setUserCountry } = useAppContext();
+  const { data: session } = useSession();
 
   useEffect(() => {
     const h = () => setScrolled(window.scrollY > 40);
@@ -85,9 +88,15 @@ export default function Navbar({ page, setPage, cartCount, wishlistCount }) {
                 </span>
               )}
             </button>
-            <button onClick={() => setPage("account")} className="p-2 text-muted-foreground hover:text-foreground transition-colors">
-              <User size={18} />
-            </button>
+            {session ? (
+              <button onClick={() => setPage("account")} className="p-2 text-muted-foreground hover:text-foreground transition-colors">
+                <User size={18} />
+              </button>
+            ) : (
+              <button onClick={() => setPage("auth")} className="font-mono text-[11px] tracking-[0.12em] uppercase transition-colors hover:text-foreground text-muted-foreground mx-2">
+                Login
+              </button>
+            )}
             <button onClick={() => setPage("cart")} className="p-2 text-muted-foreground hover:text-foreground transition-colors relative">
               <ShoppingBag size={18} />
               {cartCount > 0 && (
@@ -96,15 +105,7 @@ export default function Navbar({ page, setPage, cartCount, wishlistCount }) {
                 </span>
               )}
             </button>
-            <select 
-              value={userCountry} 
-              onChange={e => setUserCountry(e.target.value)}
-              className="bg-transparent border border-border text-xs rounded-sm px-1 py-0.5 outline-none text-muted-foreground hover:text-foreground"
-            >
-              <option value="GB">GB</option>
-              <option value="NP">NP</option>
-              <option value="US">US</option>
-            </select>
+            <LocationIndicator />
             <ThemeToggle />
             <button className="lg:hidden p-2 text-muted-foreground hover:text-foreground" onClick={() => setMenuOpen(true)}>
               <Menu size={18} />

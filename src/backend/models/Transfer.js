@@ -35,8 +35,11 @@ const TransferSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['Draft', 'Packed', 'Dispatched', 'In Transit', 'Customs Clearance', 'Arrived', 'Received'],
-    default: 'Draft'
+    enum: ['Dispatched', 'At Port / Customs Export', 'In Transit', 'At Port / Customs Import', 'Received'],
+    default: 'Dispatched'
+  },
+  cargoTrackingNumber: {
+    type: String,
   },
   items: [TransferItemSchema],
   notes: {

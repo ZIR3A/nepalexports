@@ -50,10 +50,22 @@ export const authOptions = {
     strategy: "jwt",
   },
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
+      if (trigger === "update" && session?.kycStatus) {
+        token.kycStatus = session.kycStatus;
+      }
       if (user) {
-        token.role = user.role;
-        token.id = user.id;
+        await connectToDatabase();
+        const dbUser = await User.findOne({ email: user.email });
+        if (dbUser) {
+          token.role = dbUser.role;
+          token.id = dbUser._id.toString();
+          token.kycStatus = dbUser.kycStatus;
+        } else {
+          token.role = user.role || 'user';
+          token.id = user.id;
+          token.kycStatus = 'PENDING';
+        }
       }
       return token;
     },
@@ -61,6 +73,7 @@ export const authOptions = {
       if (session.user) {
         session.user.role = token.role;
         session.user.id = token.id;
+        session.user.kycStatus = token.kycStatus;
       }
       return session;
     },
@@ -69,12 +82,19 @@ export const authOptions = {
         await connectToDatabase();
         const existingUser = await User.findOne({ email: user.email });
         if (!existingUser) {
+          const nameParts = (user.name || "").split(" ");
+          const firstName = nameParts[0] || "";
+          const lastName = nameParts.slice(1).join(" ") || "";
           await User.create({
             name: user.name,
+            firstName,
+            lastName,
             email: user.email,
             image: user.image,
+            avatarUrl: user.image,
             googleId: account.providerAccountId,
             role: "user",
+            kycStatus: "PENDING"
           });
         }
       }

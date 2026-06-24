@@ -23,7 +23,21 @@ export default function EditProductPage() {
 
   // Form State
   const [formData, setFormData] = useState({
-    name: "", slug: "", sku: "", basePrice: "", localPrice: "", description: "", brand: ""
+    name: "", slug: "", sku: "", basePrice: "", localPrice: "", description: "", brand: "",
+    status: "published",
+    wmsData: {},
+    enrichment: { marketingDescription: "", seoTitle: "", seoDescription: "" },
+    foodCompliance: {
+      ingredientsList: "",
+      nutritionalFacts: {},
+      allergenWarnings: [],
+      dietaryTags: []
+    },
+    logisticsAttributes: {
+      shelfLife: "",
+      storageConditions: "Room Temperature",
+      certifications: []
+    }
   });
   const [availableCountries, setAvailableCountries] = useState(["NP", "GB"]);
   const [mainCategory, setMainCategory] = useState("");
@@ -53,7 +67,21 @@ export default function EditProductPage() {
           basePrice: prodData.basePrice || "",
           localPrice: prodData.localPrice || "",
           description: prodData.description || "",
-          brand: prodData.brand || ""
+          brand: prodData.brand || "",
+          status: prodData.status || "published",
+          wmsData: prodData.wmsData || {},
+          enrichment: prodData.enrichment || { marketingDescription: "", seoTitle: "", seoDescription: "" },
+          foodCompliance: {
+            ingredientsList: prodData.foodCompliance?.ingredientsList || "",
+            nutritionalFacts: prodData.foodCompliance?.nutritionalFacts || {},
+            allergenWarnings: (prodData.foodCompliance?.allergenWarnings || []).join(", "),
+            dietaryTags: (prodData.foodCompliance?.dietaryTags || []).join(", ")
+          },
+          logisticsAttributes: prodData.logisticsAttributes || {
+            shelfLife: "",
+            storageConditions: "Room Temperature",
+            certifications: []
+          }
         });
         
         setMainCategory(prodData.mainCategory?._id || prodData.mainCategory || "");
@@ -80,6 +108,9 @@ export default function EditProductPage() {
             sku: v.sku,
             size: v.attributes?.size || "",
             color: v.attributes?.color || "",
+            weight: v.attributes?.weight || "",
+            flavor: v.attributes?.flavor || "",
+            packSize: v.attributes?.packSize || "",
             priceOverride: v.priceOverride || "",
             inventory: invEntry.byWarehouse || {}
           };
@@ -95,6 +126,18 @@ export default function EditProductPage() {
 
   const selectedMainCategoryObj = categories.find(c => c._id === mainCategory);
 
+  const handleCategoryChange = (newCatId) => {
+    const newCat = categories.find(c => c._id === newCatId);
+    if (selectedMainCategoryObj && newCat && selectedMainCategoryObj.productType !== newCat.productType) {
+      if (!window.confirm(`Warning: Switching from ${selectedMainCategoryObj.productType} to ${newCat.productType} may clear or invalidate existing category-specific attributes. Continue?`)) {
+        return;
+      }
+      setAttributes({});
+    }
+    setMainCategory(newCatId);
+    setSubCategory("");
+  };
+
   const handleAttributeChange = (key, value) => {
     setAttributes(prev => ({ ...prev, [key]: value }));
   };
@@ -104,6 +147,9 @@ export default function EditProductPage() {
       sku: formData.sku ? `${formData.sku}-V${variants.length + 1}` : "",
       size: "",
       color: "",
+      weight: "",
+      flavor: "",
+      packSize: "",
       priceOverride: "",
       inventory: {} 
     }]);
@@ -155,13 +201,15 @@ export default function EditProductPage() {
     setImages(newImages);
   };
 
-  const handleSave = async () => {
+  const handleSave = async (overrideStatus = null) => {
     try {
       const mappedVariants = variants.map(v => ({
         ...(v._id ? { _id: v._id } : {}),
         sku: v.sku,
         priceOverride: Number(v.priceOverride) || null,
-        attributes: { size: v.size, color: v.color },
+        attributes: selectedMainCategoryObj?.productType === 'food' 
+          ? { weight: v.weight, flavor: v.flavor, packSize: v.packSize }
+          : { size: v.size, color: v.color },
         inventoryData: v.inventory 
       }));
 
@@ -174,7 +222,21 @@ export default function EditProductPage() {
         attributes,
         availableCountries,
         media: images.map(url => ({ url, type: "image" })),
-        variants: mappedVariants
+        variants: mappedVariants,
+        status: overrideStatus || formData.status,
+        wmsData: formData.wmsData,
+        enrichment: formData.enrichment,
+        foodCompliance: {
+          ...formData.foodCompliance,
+          allergenWarnings: typeof formData.foodCompliance?.allergenWarnings === 'string'
+            ? formData.foodCompliance.allergenWarnings.split(',').map(s=>s.trim()).filter(Boolean)
+            : formData.foodCompliance?.allergenWarnings || [],
+          dietaryTags: typeof formData.foodCompliance?.dietaryTags === 'string'
+            ? formData.foodCompliance.dietaryTags.split(',').map(s=>s.trim()).filter(Boolean)
+            : formData.foodCompliance?.dietaryTags || []
+        },
+        logisticsAttributes: formData.logisticsAttributes,
+        isActive: (overrideStatus || formData.status) === 'published' ? true : formData.isActive
       };
 
       const res = await fetch(`/api/products/${productId}`, {
@@ -204,11 +266,21 @@ export default function EditProductPage() {
           <Button variant="ghost" onClick={() => router.back()}><ArrowLeft size={16} /></Button>
           <h2 className="font-display text-2xl">Edit Product</h2>
         </div>
-        <Button onClick={handleSave} className="gap-2 bg-foreground text-background"><Save size={16} /> Save Changes</Button>
+        <div className="flex gap-3">
+          {formData.status !== 'published' && (
+            <Button 
+              onClick={() => handleSave('published')} 
+              className="gap-2 bg-accent text-accent-foreground hover:bg-accent/90"
+            >
+              Publish Product
+            </Button>
+          )}
+          <Button onClick={() => handleSave()} className="gap-2 bg-foreground text-background"><Save size={16} /> Save Changes</Button>
+        </div>
       </div>
 
       <div className="flex border-b border-border mb-6 gap-2">
-        {["general", "attributes", "variants", "media"].map(t => (
+        {["general", "enrichment", "attributes", "variants", "media", ...(selectedMainCategoryObj?.productType === 'food' ? ["compliance"] : [])].map(t => (
           <button
             key={t}
             onClick={() => setActiveTab(t)}
@@ -260,7 +332,7 @@ export default function EditProductPage() {
               </div>
               <div className="space-y-2">
                 <Label>Main Category</Label>
-                <select className="w-full border p-2 bg-background rounded-md text-sm" value={mainCategory} onChange={e => { setMainCategory(e.target.value); setSubCategory(""); }}>
+                <select className="w-full border p-2 bg-background rounded-md text-sm" value={mainCategory} onChange={e => handleCategoryChange(e.target.value)}>
                   <option value="">Select...</option>
                   {categories.map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
                 </select>
@@ -304,10 +376,96 @@ export default function EditProductPage() {
         </div>
       )}
 
+      {activeTab === "enrichment" && (
+        <div className="space-y-6">
+          <div className="bg-card border border-border p-6 rounded-md">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-medium">Product Status Workflow</h3>
+              <div className="flex gap-2">
+                <Button 
+                  variant={formData.status === 'wms_draft' ? 'default' : 'outline'} 
+                  size="sm"
+                  onClick={() => setFormData({ ...formData, status: 'wms_draft' })}
+                >
+                  WMS Draft
+                </Button>
+                <Button 
+                  variant={formData.status === 'enrichment_pending' ? 'default' : 'outline'} 
+                  size="sm"
+                  onClick={() => setFormData({ ...formData, status: 'enrichment_pending' })}
+                >
+                  Needs Enrichment
+                </Button>
+                <Button 
+                  variant={formData.status === 'published' ? 'default' : 'outline'} 
+                  size="sm"
+                  onClick={() => setFormData({ ...formData, status: 'published' })}
+                >
+                  Published
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-card border border-border p-6 rounded-md">
+            <h3 className="font-medium mb-4">WMS Logistical Data (Read Only)</h3>
+            <div className="grid grid-cols-4 gap-4 bg-muted/50 p-4 rounded text-sm">
+              <div>
+                <p className="text-muted-foreground mb-1">Original SKU</p>
+                <p className="font-mono">{formData.wmsData.originalSku || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground mb-1">Weight</p>
+                <p className="font-mono">{formData.wmsData.weight || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground mb-1">Dimensions</p>
+                <p className="font-mono">{formData.wmsData.dimensions || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground mb-1">WMS ID</p>
+                <p className="font-mono">{formData.wmsData.wmsProductId || 'N/A'}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-card border border-border p-6 rounded-md">
+            <h3 className="font-medium mb-4">Marketing & SEO Enrichment</h3>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Marketing Description</Label>
+                <Textarea 
+                  rows={4} 
+                  placeholder="Rich description for the storefront..."
+                  value={formData.enrichment.marketingDescription} 
+                  onChange={e => setFormData({ ...formData, enrichment: { ...formData.enrichment, marketingDescription: e.target.value } })} 
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>SEO Title</Label>
+                  <Input 
+                    value={formData.enrichment.seoTitle} 
+                    onChange={e => setFormData({ ...formData, enrichment: { ...formData.enrichment, seoTitle: e.target.value } })} 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>SEO Description</Label>
+                  <Input 
+                    value={formData.enrichment.seoDescription} 
+                    onChange={e => setFormData({ ...formData, enrichment: { ...formData.enrichment, seoDescription: e.target.value } })} 
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {activeTab === "attributes" && (
         <div className="bg-card border border-border p-6 rounded-md space-y-4">
           <h3 className="font-medium mb-4">Dynamic Attributes</h3>
-          <p className="text-sm text-muted-foreground mb-4">Define custom properties like Material, Wash Care, etc.</p>
+          <p className="text-sm text-muted-foreground mb-4">Define custom properties specific to the {selectedMainCategoryObj?.productType || 'standard'} category.</p>
           
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -321,6 +479,81 @@ export default function EditProductPage() {
             <div className="space-y-2">
               <Label>Weight</Label>
               <Input placeholder="e.g. 200g" value={attributes.weight || ""} onChange={e => handleAttributeChange('weight', e.target.value)} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "compliance" && selectedMainCategoryObj?.productType === 'food' && (
+        <div className="bg-card border border-border p-6 rounded-md space-y-8">
+          <div>
+            <h3 className="font-medium mb-4 text-red-600">Safety & Compliance</h3>
+            <p className="text-sm text-muted-foreground mb-4">Food products require strict regulatory compliance data.</p>
+            <div className="grid grid-cols-2 gap-6">
+              <div className="space-y-2 col-span-2">
+                <Label>Ingredients List</Label>
+                <Textarea 
+                  placeholder="Comma separated ingredients" 
+                  value={formData.foodCompliance.ingredientsList} 
+                  onChange={e => setFormData({...formData, foodCompliance: {...formData.foodCompliance, ingredientsList: e.target.value}})} 
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Allergens (comma separated)</Label>
+                <Input 
+                  placeholder="e.g. Peanuts, Dairy" 
+                  value={formData.foodCompliance.allergenWarnings} 
+                  onChange={e => setFormData({...formData, foodCompliance: {...formData.foodCompliance, allergenWarnings: e.target.value}})} 
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Dietary Tags (comma separated)</Label>
+                <Input 
+                  placeholder="e.g. Vegan, Gluten-Free" 
+                  value={formData.foodCompliance.dietaryTags} 
+                  onChange={e => setFormData({...formData, foodCompliance: {...formData.foodCompliance, dietaryTags: e.target.value}})} 
+                />
+              </div>
+              <div className="space-y-2 col-span-2 mt-4">
+                <Label>Nutritional Facts (JSON)</Label>
+                <Textarea 
+                  rows={4} 
+                  placeholder='{"Calories": "200kcal", "Protein": "15g"}' 
+                  value={typeof formData.foodCompliance.nutritionalFacts === 'object' ? JSON.stringify(formData.foodCompliance.nutritionalFacts) : (formData.foodCompliance.nutritionalFacts || "")} 
+                  onChange={e => {
+                    let val = e.target.value;
+                    try { val = JSON.parse(val); } catch(err) { /* string temporarily */ }
+                    setFormData({...formData, foodCompliance: {...formData.foodCompliance, nutritionalFacts: val}});
+                  }} 
+                />
+                <p className="text-xs text-muted-foreground mt-1">Provide a valid JSON object. Leave plain text if typing.</p>
+              </div>
+            </div>
+          </div>
+          
+          <div className="pt-6 border-t border-border">
+            <h3 className="font-medium mb-4 text-blue-600">Logistics & Storage</h3>
+            <div className="grid grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label>Shelf Life</Label>
+                <Input 
+                  placeholder="e.g. 6 Months" 
+                  value={formData.logisticsAttributes.shelfLife} 
+                  onChange={e => setFormData({...formData, logisticsAttributes: {...formData.logisticsAttributes, shelfLife: e.target.value}})} 
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Storage Conditions</Label>
+                <select 
+                  className="w-full border border-border bg-background p-2 rounded-md text-sm outline-none"
+                  value={formData.logisticsAttributes.storageConditions}
+                  onChange={e => setFormData({...formData, logisticsAttributes: {...formData.logisticsAttributes, storageConditions: e.target.value}})}
+                >
+                  <option value="Room Temperature">Room Temperature</option>
+                  <option value="Refrigerated">Refrigerated</option>
+                  <option value="Frozen">Frozen</option>
+                </select>
+              </div>
             </div>
           </div>
         </div>
@@ -350,14 +583,33 @@ export default function EditProductPage() {
                   <Label>Variant SKU</Label>
                   <Input value={v.sku} onChange={e => updateVariant(index, 'sku', e.target.value)} />
                 </div>
-                <div className="space-y-2">
-                  <Label>Size</Label>
-                  <Input value={v.size} placeholder="e.g. M" onChange={e => updateVariant(index, 'size', e.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Color</Label>
-                  <Input value={v.color} placeholder="e.g. Black" onChange={e => updateVariant(index, 'color', e.target.value)} />
-                </div>
+                {selectedMainCategoryObj?.productType === 'food' ? (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Weight / Volume</Label>
+                      <Input value={v.weight || ""} placeholder="e.g. 250g" onChange={e => updateVariant(index, 'weight', e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Flavor / Type</Label>
+                      <Input value={v.flavor || ""} placeholder="e.g. Spicy" onChange={e => updateVariant(index, 'flavor', e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Pack Size</Label>
+                      <Input value={v.packSize || ""} placeholder="e.g. 6-Pack" onChange={e => updateVariant(index, 'packSize', e.target.value)} />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Size</Label>
+                      <Input value={v.size || ""} placeholder="e.g. M" onChange={e => updateVariant(index, 'size', e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Color</Label>
+                      <Input value={v.color || ""} placeholder="e.g. Black" onChange={e => updateVariant(index, 'color', e.target.value)} />
+                    </div>
+                  </>
+                )}
                 <div className="space-y-2">
                   <Label>Price Override (£)</Label>
                   <Input value={v.priceOverride} placeholder="Optional" onChange={e => updateVariant(index, 'priceOverride', e.target.value)} />

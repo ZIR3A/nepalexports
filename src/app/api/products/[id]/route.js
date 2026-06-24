@@ -7,12 +7,15 @@ import { unlink } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { del } from '@vercel/blob';
+import { authorizeRoles } from '@/backend/middleware/auth';
 
 export async function GET(req, { params }) {
   try {
     await connectToDatabase();
     
     const { id } = await params;
+    const { searchParams } = new URL(req.url);
+    const warehouseId = searchParams.get('warehouseId');
 
     const product = await Product.findById(id).populate('mainCategory').populate('subCategory');
     if (!product) {
@@ -24,6 +27,7 @@ export async function GET(req, { params }) {
     
     // Aggregate total stock simply
     let totalStock = 0;
+    let localWarehouseStock = 0;
     const inventoryMap = {};
 
     inventory.forEach(inv => {
@@ -38,6 +42,11 @@ export async function GET(req, { params }) {
       const whId = String(inv.warehouse?._id);
       inventoryMap[vid].byWarehouse[whId] = (inventoryMap[vid].byWarehouse[whId] || 0) + inv.quantity;
       
+      // Track stock in the user's specific warehouse
+      if (warehouseId && whId === warehouseId) {
+        localWarehouseStock += inv.quantity;
+      }
+
       const whName = inv.warehouse?.name?.toLowerCase() || '';
       const whCountry = inv.warehouse?.country || '';
 
@@ -56,6 +65,8 @@ export async function GET(req, { params }) {
     return NextResponse.json({ 
       ...productObj, 
       totalStock,
+      localWarehouseStock,
+      isUnavailable: warehouseId ? localWarehouseStock === 0 : false,
       inventoryMap
     });
   } catch (error) {
@@ -66,6 +77,9 @@ export async function GET(req, { params }) {
 
 export async function PUT(req, { params }) {
   try {
+    const authResponse = await authorizeRoles('super_admin', 'admin', 'marketing_admin');
+    if (authResponse) return authResponse;
+
     await connectToDatabase();
     const { id } = await params;
     const body = await req.json();
@@ -80,6 +94,15 @@ export async function PUT(req, { params }) {
     });
 
     const productPayload = { ...body, variants: productVariants };
+
+    if (productPayload.status === 'published') {
+      const productDoc = await Product.findById(id);
+      if (productDoc && productDoc.countryDrafts?.length > 0) {
+        const newCountries = [...new Set([...(productDoc.availableCountries || []), ...productDoc.countryDrafts])];
+        productPayload.availableCountries = newCountries;
+        productPayload.countryDrafts = [];
+      }
+    }
 
     const product = await Product.findByIdAndUpdate(id, productPayload, { new: true, runValidators: true });
     if (!product) {
@@ -118,6 +141,9 @@ export async function PUT(req, { params }) {
 
 export async function DELETE(req, { params }) {
   try {
+    const authResponse = await authorizeRoles('super_admin', 'admin', 'marketing_admin');
+    if (authResponse) return authResponse;
+
     await connectToDatabase();
     const { id } = await params;
 

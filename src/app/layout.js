@@ -1,7 +1,10 @@
 import { AuthProvider } from "@/components/providers/AuthProvider";
 import { AppProvider } from "@/context/AppContext";
+import { LocationProvider } from "@/context/LocationContext";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
+import { LocationModal } from "@/components/LocationSelector";
 import AppLayout from "@/components/AppLayout";
+import { KycGuard } from "@/components/providers/KycGuard";
 import "./globals.css";
 
 export const metadata = {
@@ -43,13 +46,19 @@ export default function RootLayout({ children }) {
     <html lang="en" suppressHydrationWarning>
       <body className="antialiased">
         <AuthProvider>
-          <AppProvider>
-            <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
-              <AppLayout>{children}</AppLayout>
-            </ThemeProvider>
-          </AppProvider>
+          <KycGuard>
+            <LocationProvider>
+              <AppProvider>
+                <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
+                  <LocationModal />
+                  <AppLayout>{children}</AppLayout>
+                </ThemeProvider>
+              </AppProvider>
+            </LocationProvider>
+          </KycGuard>
         </AuthProvider>
       </body>
     </html>
   );
 }
+

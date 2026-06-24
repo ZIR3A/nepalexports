@@ -3,21 +3,88 @@ import { User, Package, Heart, MapPin, CreditCard, Settings, LogOut, Award, Load
 import { PRODUCTS } from "../../data/products";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { useSession, signOut } from "next-auth/react";
 
 export default function AccountDashboard({ setPage }) {
   const [activeSection, setActiveSection] = useState("overview");
   const [orders, setOrders] = useState([]);
+  const [profile, setProfile] = useState(null);
+  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
   const [isLoadingOrders, setIsLoadingOrders] = useState(true);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [profileFormData, setProfileFormData] = useState({ firstName: '', lastName: '', phoneNumber: '' });
+  const { data: session } = useSession();
 
   useEffect(() => {
-    fetchOrders();
-  }, []);
+    if (session) {
+      fetchOrders();
+      fetchProfile();
+    }
+  }, [session]);
+
+  const fetchProfile = async () => {
+    try {
+      setIsLoadingProfile(true);
+      const res = await fetch("/api/users/me");
+      const data = await res.json();
+      if (data.success) {
+        setProfile(data.user);
+        setProfileFormData({
+          firstName: data.user.firstName || '',
+          lastName: data.user.lastName || '',
+          phoneNumber: data.user.phoneNumber || ''
+        });
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsLoadingProfile(false);
+    }
+  };
+
+  const updateProfile = async (updates) => {
+    try {
+      setIsUpdating(true);
+      const res = await fetch("/api/users/me", {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      });
+      const data = await res.json();
+      if (data.success) {
+        setProfile(data.user);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleTogglePreference = (key) => {
+    const currentPrefs = profile?.preferences || {};
+    updateProfile({ preferences: { ...currentPrefs, [key]: !currentPrefs[key] } });
+  };
+
+  const handleAddMockCard = () => {
+    const currentCards = profile?.paymentMethods || [];
+    const mockCard = {
+      type: Math.random() > 0.5 ? 'Visa' : 'Mastercard',
+      last4: Math.floor(1000 + Math.random() * 9000).toString(),
+      expiry: `${Math.floor(1 + Math.random() * 11).toString().padStart(2, '0')}/${Math.floor(25 + Math.random() * 5)}`
+    };
+    updateProfile({ paymentMethods: [...currentCards, mockCard] });
+  };
+
+  const handleRemoveCard = (cardId) => {
+    const currentCards = profile?.paymentMethods || [];
+    updateProfile({ paymentMethods: currentCards.filter(c => c._id !== cardId) });
+  };
 
   const fetchOrders = async () => {
     try {
       setIsLoadingOrders(true);
-      // In a real app, this uses session. For now, we mock the email query.
-      const res = await fetch("/api/orders/me?email=arjun@example.com");
+      const res = await fetch("/api/orders/me");
       const data = await res.json();
       if (data.success) {
         setOrders(data.orders);
@@ -51,12 +118,18 @@ export default function AccountDashboard({ setPage }) {
           <aside className="lg:col-span-1">
             <div className="bg-card border border-border p-6 mb-4">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-accent/20 border border-accent/30 flex items-center justify-center">
-                  <span className="font-display text-lg text-accent">A</span>
+                <div className="w-12 h-12 bg-accent/20 border border-accent/30 flex items-center justify-center overflow-hidden">
+                  {profile?.avatarUrl ? (
+                    <img src={profile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="font-display text-lg text-accent">
+                      {profile?.firstName?.charAt(0) || session?.user?.name?.charAt(0) || "A"}
+                    </span>
+                  )}
                 </div>
                 <div>
-                  <p className="font-medium text-foreground">Arjun Sharma</p>
-                  <p className="font-mono text-[10px] text-muted-foreground">arjun@example.com</p>
+                  <p className="font-medium text-foreground">{profile?.firstName} {profile?.lastName}</p>
+                  <p className="font-mono text-[10px] text-muted-foreground">{session?.user?.email}</p>
                 </div>
               </div>
               <div className="mt-4 flex items-center gap-2">
@@ -79,7 +152,10 @@ export default function AccountDashboard({ setPage }) {
                   {item.label}
                 </button>
               ))}
-              <button className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-400 hover:text-red-300 transition-colors">
+              <button 
+                onClick={() => signOut({ callbackUrl: '/' })}
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-400 hover:text-red-300 transition-colors"
+              >
                 <LogOut size={15} />
                 Sign Out
               </button>
@@ -90,7 +166,7 @@ export default function AccountDashboard({ setPage }) {
           <div className="lg:col-span-3">
             {activeSection === "overview" && (
               <div>
-                <h2 className="font-display text-3xl font-light mb-6">Welcome back, Arjun</h2>
+                <h2 className="font-display text-3xl font-light mb-6">Welcome back, {profile?.firstName || session?.user?.name?.split(' ')[0]}</h2>
                 <div className="grid grid-cols-3 gap-4 mb-8">
                   {[
                     { label: "Total Orders", value: isLoadingOrders ? "-" : orders.length, icon: Package },
@@ -183,23 +259,47 @@ export default function AccountDashboard({ setPage }) {
                   <div className="border border-border p-6">
                     <h3 className="font-mono text-[11px] tracking-[0.12em] uppercase text-muted-foreground mb-4">Personal Details</h3>
                     <div className="grid grid-cols-2 gap-4">
-                      {[["First Name", "Arjun"], ["Last Name", "Sharma"], ["Email", "arjun@example.com"], ["Phone", "+44 7700 900000"]].map(([label, val]) => (
+                      {[
+                        ["First Name", "firstName"], 
+                        ["Last Name", "lastName"], 
+                        ["Phone", "phoneNumber"]
+                      ].map(([label, key]) => (
                         <div key={label}>
                           <label className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground block mb-2">{label}</label>
-                          <input defaultValue={val} className="w-full bg-muted border border-border px-4 py-2.5 text-sm text-foreground outline-none focus:border-accent/50" />
+                          <input 
+                            value={profileFormData[key]}
+                            onChange={(e) => setProfileFormData(prev => ({ ...prev, [key]: e.target.value }))}
+                            className="w-full bg-muted border border-border px-4 py-2.5 text-sm text-foreground outline-none focus:border-accent/50" 
+                          />
                         </div>
                       ))}
                     </div>
-                    <Button variant="default" size="sm" className="mt-4">Save Changes</Button>
+                    <Button 
+                      variant="default" 
+                      size="sm" 
+                      className="mt-4"
+                      onClick={() => updateProfile(profileFormData)}
+                      disabled={isUpdating}
+                    >
+                      {isUpdating ? <Loader2 className="animate-spin" size={14} /> : "Save Changes"}
+                    </Button>
                   </div>
                   <div className="border border-border p-6">
                     <h3 className="font-mono text-[11px] tracking-[0.12em] uppercase text-muted-foreground mb-4">Preferences</h3>
                     <div className="space-y-3">
-                      {["Order updates", "New arrivals", "Flash sales", "Back in stock"].map(pref => (
-                        <label key={pref} className="flex items-center justify-between cursor-pointer">
-                          <span className="text-sm text-foreground">{pref}</span>
-                          <div className="w-10 h-5 bg-accent relative cursor-pointer">
-                            <div className="absolute top-0.5 right-0.5 w-4 h-4 bg-accent-foreground" />
+                      {[
+                        { label: "Order updates", key: "orderUpdates" }, 
+                        { label: "New arrivals", key: "newArrivals" }, 
+                        { label: "Flash sales", key: "flashSales" }, 
+                        { label: "Back in stock", key: "backInStock" }
+                      ].map(pref => (
+                        <label key={pref.key} className="flex items-center justify-between cursor-pointer">
+                          <span className="text-sm text-foreground">{pref.label}</span>
+                          <div 
+                            className={`w-10 h-5 relative cursor-pointer transition-colors ${profile?.preferences?.[pref.key] ? "bg-accent" : "bg-muted"}`}
+                            onClick={() => handleTogglePreference(pref.key)}
+                          >
+                            <div className={`absolute top-0.5 w-4 h-4 transition-all ${profile?.preferences?.[pref.key] ? "right-0.5 bg-accent-foreground" : "left-0.5 bg-muted-foreground"}`} />
                           </div>
                         </label>
                       ))}
@@ -215,42 +315,58 @@ export default function AccountDashboard({ setPage }) {
                   {activeSection === "wishlist" ? "My Wishlist" : activeSection === "addresses" ? "Saved Addresses" : "Payment Methods"}
                 </h2>
                 <div className="grid grid-cols-2 gap-4">
-                  {activeSection === "wishlist" && PRODUCTS.slice(0, 4).map(p => (
-                    <div key={p.id} className="flex gap-4 border border-border p-4">
-                      <img src={p.image} alt={p.name} className="w-20 h-24 object-cover bg-muted" />
+                  {activeSection === "wishlist" && profile?.wishlist?.length > 0 ? profile.wishlist.map(p => (
+                    <div key={p._id} className="flex gap-4 border border-border p-4">
+                      <img src={p.media?.[0]?.url || ""} alt={p.name} className="w-20 h-24 object-cover bg-muted" />
                       <div className="flex-1">
                         <p className="text-sm font-medium text-foreground">{p.name}</p>
-                        <p className="font-mono text-sm text-accent mt-1">£{p.price}</p>
-                        <Button variant="outline" size="sm" className="mt-3 text-xs">Add to Cart</Button>
+                        <p className="font-mono text-sm text-accent mt-1">£{p.basePrice}</p>
+                        <Button variant="outline" size="sm" className="mt-3 text-xs">View Product</Button>
                       </div>
                     </div>
-                  ))}
-                  {activeSection === "addresses" && [
-                    { type: "Home", name: "Arjun Sharma", address: "123 Oxford Street, London, W1D 1AB, UK" },
-                    { type: "Work", name: "Arjun Sharma", address: "45 Thamel Road, Kathmandu, 44600, Nepal" },
-                  ].map(addr => (
-                    <div key={addr.type} className="border border-border p-5">
+                  )) : activeSection === "wishlist" && (
+                    <div className="col-span-2 border border-border p-8 text-center text-muted-foreground text-sm">
+                      Your wishlist is empty.
+                    </div>
+                  )}
+                  {activeSection === "addresses" && profile?.address ? (
+                    <div className="border border-border p-5">
                       <div className="flex justify-between mb-3">
-                        <Badge size="tag">{addr.type}</Badge>
+                        <Badge size="tag">Primary</Badge>
                         <button className="text-xs text-accent hover:underline">Edit</button>
                       </div>
-                      <p className="font-medium text-sm text-foreground">{addr.name}</p>
-                      <p className="text-sm text-muted-foreground mt-1">{addr.address}</p>
+                      <p className="font-medium text-sm text-foreground">{profile.firstName} {profile.lastName}</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {profile.address.street}, {profile.address.city}, {profile.address.state} {profile.address.postalCode}, {profile.address.country}
+                      </p>
                     </div>
-                  ))}
-                  {activeSection === "payment" && [
-                    { type: "Visa", last4: "4242", expiry: "12/26" },
-                    { type: "Mastercard", last4: "8888", expiry: "08/27" },
-                  ].map(card => (
-                    <div key={card.last4} className="border border-border p-5">
+                  ) : activeSection === "addresses" ? (
+                    <div className="border border-border p-5 text-muted-foreground text-sm flex items-center justify-center">
+                      No addresses saved.
+                    </div>
+                  ) : null}
+                  {activeSection === "payment" && profile?.paymentMethods?.map(card => (
+                    <div key={card._id} className="border border-border p-5">
                       <div className="flex justify-between mb-3">
                         <Badge size="tag">{card.type}</Badge>
-                        <button className="text-xs text-red-400 hover:underline">Remove</button>
+                        <button 
+                          onClick={() => handleRemoveCard(card._id)}
+                          className="text-xs text-red-400 hover:underline"
+                        >
+                          Remove
+                        </button>
                       </div>
                       <p className="font-mono text-sm text-foreground">•••• •••• •••• {card.last4}</p>
                       <p className="font-mono text-[11px] text-muted-foreground mt-1">Expires {card.expiry}</p>
                     </div>
                   ))}
+                  {activeSection === "payment" && (
+                    <div className="col-span-2 flex justify-start mt-2">
+                      <Button onClick={handleAddMockCard} variant="outline" size="sm">
+                        Add Mock Card
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

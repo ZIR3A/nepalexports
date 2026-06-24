@@ -4,9 +4,11 @@ import { Heart, Eye } from "lucide-react";
 import { Badge } from "./ui/badge";
 import StarRating from "./StarRating";
 
-export default function ProductCard({ product, onView, onAddToCart, onWishlist, isWishlisted }) {
+export default function ProductCard({ product, onView, onAddToCart, onWishlist, isWishlisted, currencySymbol = "£", canPurchase = true }) {
   const [hovered, setHovered] = useState(false);
   const [selectedColor, setSelectedColor] = useState(product.colors[0]);
+
+  const isUnavailable = product.isUnavailable;
 
   return (
     <motion.div
@@ -14,7 +16,7 @@ export default function ProductCard({ product, onView, onAddToCart, onWishlist, 
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
       transition={{ duration: 0.4 }}
-      className="group"
+      className={`group ${isUnavailable ? "opacity-60" : ""}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -23,7 +25,7 @@ export default function ProductCard({ product, onView, onAddToCart, onWishlist, 
         <img
           src={hovered ? product.hoverImage : product.image}
           alt={product.name}
-          className="w-full h-full object-cover transition-all duration-700"
+          className={`w-full h-full object-cover transition-all duration-700 ${isUnavailable ? "grayscale" : ""}`}
         />
         {product.badge && (
           <div className="absolute top-3 left-3">
@@ -38,23 +40,38 @@ export default function ProductCard({ product, onView, onAddToCart, onWishlist, 
             </Badge>
           </div>
         )}
-        {/* Hover actions */}
-        <div
-          className={`absolute inset-0 bg-background/20 flex items-end justify-center pb-4 gap-2 transition-all duration-300 ${hovered ? "opacity-100" : "opacity-0"}`}
-        >
-          <button
-            onClick={(e) => { e.stopPropagation(); onAddToCart(product); }}
-            className="bg-foreground text-background text-xs font-medium px-5 py-2.5 hover:bg-accent hover:text-accent-foreground transition-colors"
+
+        {/* Out of stock overlay */}
+        {isUnavailable && (
+          <div className="absolute inset-0 bg-background/40 flex items-center justify-center">
+            <span className="bg-foreground/90 text-background text-xs font-mono tracking-wider px-4 py-2 uppercase">
+              Out of Stock
+            </span>
+          </div>
+        )}
+
+        {/* Hover actions — hidden when unavailable or can't purchase */}
+        {!isUnavailable && (
+          <div
+            className={`absolute inset-0 bg-background/20 flex items-end justify-center pb-4 gap-2 transition-all duration-300 ${hovered ? "opacity-100" : "opacity-0"}`}
           >
-            Quick Add
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); onView(); }}
-            className="bg-background/80 backdrop-blur-sm p-2.5 border border-border hover:border-foreground/30"
-          >
-            <Eye size={14} className="text-foreground" />
-          </button>
-        </div>
+            {canPurchase && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onAddToCart(product); }}
+                className="bg-foreground text-background text-xs font-medium px-5 py-2.5 hover:bg-accent hover:text-accent-foreground transition-colors"
+              >
+                Quick Add
+              </button>
+            )}
+            <button
+              onClick={(e) => { e.stopPropagation(); onView(); }}
+              className="bg-background/80 backdrop-blur-sm p-2.5 border border-border hover:border-foreground/30"
+            >
+              <Eye size={14} className="text-foreground" />
+            </button>
+          </div>
+        )}
+
         {/* Wishlist */}
         <button
           onClick={(e) => { e.stopPropagation(); onWishlist(product.id); }}
@@ -72,10 +89,10 @@ export default function ProductCard({ product, onView, onAddToCart, onWishlist, 
           </button>
           <div className="flex items-center gap-1">
             {product.originalPrice && (
-              <span className="font-mono text-xs text-muted-foreground line-through">£{product.originalPrice}</span>
+              <span className="font-mono text-xs text-muted-foreground line-through">{currencySymbol}{product.originalPrice}</span>
             )}
             <span className={`font-mono text-sm font-medium ${product.originalPrice ? "text-red-400" : "text-foreground"}`}>
-              £{product.price}
+              {currencySymbol}{typeof product.price === 'number' ? (currencySymbol === '£' ? product.price.toFixed(2) : Math.round(product.price).toLocaleString()) : product.price}
             </span>
           </div>
         </div>

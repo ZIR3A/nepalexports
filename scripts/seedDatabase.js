@@ -17,8 +17,11 @@ if (!MONGODB_URI) {
 const WarehouseSchema = new mongoose.Schema({
   name: { type: String, required: true, unique: true },
   country: { type: String, required: true },
+  countryCode: { type: String, required: true, uppercase: true },
   currency: { type: String, required: true },
   isActive: { type: Boolean, default: true },
+  isDefaultInternational: { type: Boolean, default: false },
+  acceptsInternationalOrders: { type: Boolean, default: false },
 });
 const Warehouse = mongoose.models.Warehouse || mongoose.model('Warehouse', WarehouseSchema);
 
@@ -38,9 +41,9 @@ async function seed() {
     // Seed Warehouses
     console.log("Seeding Warehouses...");
     const warehouses = [
-      { name: "Nepal Warehouse", country: "Nepal", currency: "NPR" },
-      { name: "UK Warehouse", country: "United Kingdom", currency: "GBP" },
-      { name: "Transit", country: "Global", currency: "USD" },
+      { name: "Nepal Warehouse", country: "Nepal", countryCode: "NP", currency: "NPR", isDefaultInternational: false, acceptsInternationalOrders: false },
+      { name: "UK Warehouse", country: "United Kingdom", countryCode: "GB", currency: "GBP", isDefaultInternational: true, acceptsInternationalOrders: true },
+      { name: "Transit", country: "Global", countryCode: "GL", currency: "USD", isDefaultInternational: false, acceptsInternationalOrders: false },
     ];
 
     for (const wh of warehouses) {

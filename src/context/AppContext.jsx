@@ -1,7 +1,8 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import { useLocation } from "@/context/LocationContext";
 
 const AppContext = createContext();
 
@@ -10,7 +11,9 @@ export function AppProvider({ children }) {
   const pathname = usePathname();
   const [cart, setCart] = useState([]);
   const [wishlist, setWishlist] = useState([1, 3]);
-  const [userCountry, setUserCountry] = useState("GB");
+  
+  // Pull location data from LocationContext
+  const location = useLocation();
 
   const toggleWishlist = (id) => {
     setWishlist(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -33,8 +36,16 @@ export function AppProvider({ children }) {
     setCart,
     wishlist,
     toggleWishlist,
-    userCountry,
-    setUserCountry,
+    // Location data from LocationContext (spread for convenience)
+    userCountry: location.countryCode,
+    setUserCountry: location.setManualCountry,
+    warehouseId: location.warehouseId,
+    currency: location.currency,
+    currencySymbol: location.currencySymbol,
+    canPurchase: location.canPurchase,
+    isThirdCountry: location.isThirdCountry,
+    formatPrice: location.formatPrice,
+    locationLoading: location.isLoading,
   };
 
   return (

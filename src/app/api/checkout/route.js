@@ -4,6 +4,7 @@ import Order from '@/backend/models/Order';
 import Inventory from '@/backend/models/Inventory';
 import Product from '@/backend/models/Product';
 import Batch from '@/backend/models/Batch';
+import { schedulePaymentTimeout } from '@/backend/lib/queue';
 
 export async function POST(req) {
   try {
@@ -108,14 +109,19 @@ export async function POST(req) {
     for (const update of inventoryUpdates) {
       await Inventory.updateOne(
         { product: update.product, variantId: update.variantId, warehouse: update.warehouse },
-        { $inc: { quantity: -update.deductQuantity } }
+        { 
+          $inc: { 
+            quantity: -update.deductQuantity,
+            reservedQuantity: update.deductQuantity 
+          } 
+        }
       );
     }
 
-    // Process Mock Payment (Success)
-    // Stripe/eSewa/Khalti APIs would go here
+    // Process Mock Payment Initiation (Pending)
+    // Stripe/eSewa/Khalti APIs would go here to generate a payment intent
 
-    // Create Order
+    // Create Order in Pending State
     const newOrder = new Order({
       customerDetails,
       shippingAddress,
@@ -131,14 +137,32 @@ export async function POST(req) {
       billing,
       payment: {
         method: paymentMethod,
-        status: 'Paid',
-        transactionId: `txn_${Math.random().toString(36).substr(2, 9)}`
+        status: 'Pending',
+        transactionId: `txn_pending_${Math.random().toString(36).substr(2, 9)}`
       },
       warehouse: warehouseId,
-      status: 'Processing',
+      status: 'Pending',
     });
 
     await newOrder.save();
+
+    // Schedule the 1-minute (dev) or 15-minute (prod) grace period timeout
+    // Using 1 minute (60000ms) for testing as requested
+    await schedulePaymentTimeout(newOrder._id.toString(), inventoryUpdates, 60000);
+
+    // Notify WMS of the order allocation
+    try {
+      const { notifyWmsOrderAllocated } = require('@/backend/services/wmsService');
+      await notifyWmsOrderAllocated({
+        orderId: newOrder._id,
+        orderNumber: newOrder.orderNumber,
+        items: newOrder.items,
+        warehouseId: newOrder.warehouse
+      });
+    } catch (wmsErr) {
+      console.error('Failed to notify WMS of order allocation:', wmsErr);
+      // We don't fail the checkout if WMS notification fails, but log it
+    }
 
     return NextResponse.json({ 
       success: true, 

@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { ArrowRight, Star, Loader2 } from "lucide-react";
+import { ArrowRight, Star, Loader2, AlertTriangle } from "lucide-react";
 import ProductCard from "../ProductCard";
 import { Button } from "../ui/button";
 import StarRating from "../StarRating";
 
-export default function HomePage({ setPage, cart, setCart, wishlist, toggleWishlist }) {
+export default function HomePage({ setPage, cart, setCart, wishlist, toggleWishlist, warehouseId, currency, currencySymbol, formatPrice, canPurchase, isThirdCountry }) {
   const [activeTab, setActiveTab] = useState(0);
   const tabs = ["New Arrivals", "Best Sellers", "On Sale"];
   
@@ -16,23 +16,35 @@ export default function HomePage({ setPage, cart, setCart, wishlist, toggleWishl
     const fetchProducts = async () => {
       try {
         setIsLoading(true);
-        const res = await fetch('/api/products');
+        // Build URL with warehouse filter for localized results
+        let url = '/api/products';
+        const params = new URLSearchParams();
+        if (warehouseId) params.set('warehouseId', warehouseId);
+        if (params.toString()) url += `?${params.toString()}`;
+        
+        const res = await fetch(url);
         if (!res.ok) throw new Error("Failed to fetch products");
         const data = await res.json();
         
         const mappedProducts = data.slice(0, 8).map(p => {
           const colors = [...new Set(p.variants.map(v => v.color).filter(c => c && c !== "N/A"))];
+          // Use localPrice for NPR, basePrice for GBP
+          const displayPrice = currency === 'NPR' ? (p.localPrice || p.basePrice) : p.basePrice;
           return {
             id: p._id,
             name: p.name,
-            price: p.basePrice,
+            price: displayPrice,
+            localPrice: p.localPrice,
+            basePrice: p.basePrice,
             image: p.media[0]?.url || "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=800&auto=format&fit=crop",
             hoverImage: p.media[1]?.url || p.media[0]?.url || "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=800&auto=format&fit=crop",
             colors: colors.length > 0 ? colors : ["#000000"],
             rating: 5,
             reviews: Math.floor(Math.random() * 100),
             category: p.category,
-            badge: null
+            badge: null,
+            isUnavailable: p.isUnavailable || false,
+            localStock: p.localStock || 0,
           };
         });
         
@@ -44,15 +56,30 @@ export default function HomePage({ setPage, cart, setCart, wishlist, toggleWishl
       }
     };
     
-    fetchProducts();
-  }, []);
+    if (warehouseId) {
+      fetchProducts();
+    }
+  }, [warehouseId, currency]);
 
   const addToCart = (product) => {
+    if (!canPurchase || product.isUnavailable) return;
     setCart([...cart, { ...product, quantity: 1, selectedColor: product.colors[0], selectedSize: "M" }]);
   };
 
   return (
     <div className="pt-[72px]">
+      {/* Third-country view-only banner */}
+      {isThirdCountry && !canPurchase && (
+        <div className="bg-amber-500/10 border-b border-amber-500/20">
+          <div className="max-w-[1440px] mx-auto px-6 lg:px-12 py-3 flex items-center gap-3">
+            <AlertTriangle size={16} className="text-amber-500 shrink-0" />
+            <p className="text-sm text-amber-700 dark:text-amber-400">
+              You&apos;re browsing from a region without a local warehouse. Products are shown for reference only — purchasing is currently unavailable.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Hero */}
       <section className="relative h-[90vh] min-h-[600px] overflow-hidden">
         <div className="absolute inset-0">
@@ -114,7 +141,7 @@ export default function HomePage({ setPage, cart, setCart, wishlist, toggleWishl
             { label: "Products", value: "50+", sub: "Premium pieces" },
             { label: "Countries", value: "2", sub: "UK & Nepal" },
             { label: "Reviews", value: "4.8★", sub: "Average rating" },
-            { label: "Shipping", value: "Free", sub: "Orders over रु5000" },
+            { label: "Shipping", value: "Free", sub: currency === "NPR" ? "Orders over रु5000" : "Orders over £80" },
           ].map(s => (
             <div key={s.label} className="text-center lg:border-r border-border last:border-0">
               <p className="font-mono text-2xl font-medium text-foreground">{s.value}</p>
@@ -160,6 +187,8 @@ export default function HomePage({ setPage, cart, setCart, wishlist, toggleWishl
                 onAddToCart={addToCart}
                 onWishlist={toggleWishlist}
                 isWishlisted={wishlist.includes(p.id)}
+                currencySymbol={currencySymbol}
+                canPurchase={canPurchase && !p.isUnavailable}
               />
             ))}
           </div>

@@ -11,6 +11,12 @@ const WarehouseSchema = new mongoose.Schema({
     type: String,
     required: true, // e.g., 'Nepal', 'United Kingdom'
   },
+  countryCode: {
+    type: String,
+    required: true, // e.g., 'NP', 'GB' — used for geo-routing lookups
+    uppercase: true,
+    trim: true,
+  },
   currency: {
     type: String,
     required: true, // e.g., 'NPR', 'GBP'
@@ -18,6 +24,14 @@ const WarehouseSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true,
+  },
+  isDefaultInternational: {
+    type: Boolean,
+    default: false, // Only one warehouse should be true — used for third-country fallback
+  },
+  acceptsInternationalOrders: {
+    type: Boolean,
+    default: false,
   }
 }, { timestamps: true });
 

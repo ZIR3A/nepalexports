@@ -2,8 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { ChevronRight, Heart, Minus, Plus, Truck, RotateCcw, Shield, Loader2 } from "lucide-react";
-import { PRODUCTS } from "../../data/products";
-import ProductCard from "../ProductCard";
+import RelatedProducts from "../RelatedProducts";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import StarRating from "../StarRating";
@@ -50,8 +49,11 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
           rating: 5,
           reviews: Math.floor(Math.random() * 100),
           category: data.mainCategory?.name || data.category,
+          productType: data.mainCategory?.productType || 'standard',
           sku: data.sku || data.variants[0]?.sku || "N/A",
           attributes: data.attributes || {},
+          foodCompliance: data.foodCompliance || null,
+          logisticsAttributes: data.logisticsAttributes || null,
           availableCountries: data.availableCountries || ["GB", "NP"],
           inventoryMap: data.inventoryMap || {},
           variantsData: data.variants || []
@@ -173,9 +175,20 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
             <h1 className="font-display text-4xl font-light mb-3">{product.name}</h1>
             <StarRating rating={product.rating} count={product.reviews} />
 
-            <div className="flex items-center gap-4 mt-4 pb-4">
+            <div className="flex items-center gap-4 mt-4 pb-4 border-b border-border mb-6">
               <span className="font-mono text-3xl font-medium text-foreground">रु{product.price}</span>
             </div>
+
+            {/* Dietary Tags */}
+            {product.productType === 'food' && product.foodCompliance?.dietaryTags && product.foodCompliance.dietaryTags.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-6">
+                {product.foodCompliance.dietaryTags.map(tag => (
+                  <span key={tag} className="px-3 py-1 bg-green-500/10 text-green-600 border border-green-500/20 text-xs rounded-full font-medium">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
 
             {/* Smart Availability Logic */}
             <div className="pb-6 border-b border-border">
@@ -212,52 +225,108 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
             </div>
 
             <div className="mt-6 space-y-6">
-              {/* Color */}
-              {product.colors.length > 0 && product.colors[0] !== "#000000" && (
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="font-mono text-[11px] tracking-[0.12em] uppercase text-muted-foreground">Color</span>
-                    <span className="text-sm text-foreground">
-                      {selectedColor}
-                    </span>
-                  </div>
-                  <div className="flex gap-2">
-                    {product.colors.map(c => (
-                      <button
-                        key={c}
-                        onClick={() => setSelectedColor(c)}
-                        style={{ backgroundColor: c }}
-                        className={`w-8 h-8 border transition-all ${
-                          selectedColor === c ? "ring-2 ring-accent ring-offset-2 ring-offset-background" : "border-border hover:border-foreground/40"
-                        }`}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
+              {product.productType === 'food' ? (
+                <>
+                  {/* Flavor / Variant */}
+                  {product.colors.length > 0 && product.colors[0] !== "#000000" && product.colors[0] !== "N/A" && (
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="font-mono text-[11px] tracking-[0.12em] uppercase text-muted-foreground">Flavor / Variant</span>
+                        <span className="text-sm text-foreground">{selectedColor}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {product.colors.map(c => (
+                          <button
+                            key={c}
+                            onClick={() => setSelectedColor(c)}
+                            className={`h-10 px-4 font-mono text-xs transition-all ${
+                              selectedColor === c
+                                ? "bg-foreground text-background"
+                                : "border border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground"
+                            }`}
+                          >
+                            {c}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-              {/* Size */}
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <span className="font-mono text-[11px] tracking-[0.12em] uppercase text-muted-foreground">Size</span>
-                  <button className="font-mono text-[11px] text-accent hover:underline">Size Guide</button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {product.sizes.map(s => (
-                    <button
-                      key={s}
-                      onClick={() => setSelectedSize(s)}
-                      className={`h-10 min-w-[40px] px-3 font-mono text-xs transition-all ${
-                        selectedSize === s
-                          ? "bg-foreground text-background"
-                          : "border border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground"
-                      }`}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
+                  {/* Weight / Volume */}
+                  {product.sizes.length > 0 && product.sizes[0] !== "One Size" && product.sizes[0] !== "N/A" && (
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="font-mono text-[11px] tracking-[0.12em] uppercase text-muted-foreground">Weight / Volume / Pack</span>
+                        <span className="text-sm text-foreground">{selectedSize}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {product.sizes.map(s => (
+                          <button
+                            key={s}
+                            onClick={() => setSelectedSize(s)}
+                            className={`h-10 px-4 font-mono text-xs transition-all ${
+                              selectedSize === s
+                                ? "bg-foreground text-background"
+                                : "border border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground"
+                            }`}
+                          >
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  {/* Color */}
+                  {product.colors.length > 0 && product.colors[0] !== "#000000" && product.colors[0] !== "N/A" && (
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="font-mono text-[11px] tracking-[0.12em] uppercase text-muted-foreground">Color</span>
+                        <span className="text-sm text-foreground">
+                          {selectedColor}
+                        </span>
+                      </div>
+                      <div className="flex gap-2">
+                        {product.colors.map(c => (
+                          <button
+                            key={c}
+                            onClick={() => setSelectedColor(c)}
+                            style={{ backgroundColor: c }}
+                            className={`w-8 h-8 border transition-all ${
+                              selectedColor === c ? "ring-2 ring-accent ring-offset-2 ring-offset-background" : "border-border hover:border-foreground/40"
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Size */}
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="font-mono text-[11px] tracking-[0.12em] uppercase text-muted-foreground">Size</span>
+                      <button className="font-mono text-[11px] text-accent hover:underline">Size Guide</button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {product.sizes.map(s => (
+                        <button
+                          key={s}
+                          onClick={() => setSelectedSize(s)}
+                          className={`h-10 min-w-[40px] px-3 font-mono text-xs transition-all ${
+                            selectedSize === s
+                              ? "bg-foreground text-background"
+                              : "border border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground"
+                          }`}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
 
               {/* Quantity */}
               <div>
@@ -279,6 +348,23 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
                 </div>
               </div>
             </div>
+
+            {/* Allergens Warning */}
+            {((product.foodCompliance?.allergenWarnings && product.foodCompliance.allergenWarnings.length > 0) || (product.attributes?.allergens && product.attributes.allergens.length > 0)) && (
+              <div className="mt-6 p-4 border border-red-500/30 bg-red-500/5 rounded-md flex items-start gap-3">
+                <span className="text-red-500 mt-0.5">⚠️</span>
+                <div>
+                  <h4 className="text-sm font-medium text-red-500 mb-1">Allergen Warning</h4>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {(product.foodCompliance?.allergenWarnings || product.attributes?.allergens || []).map(a => (
+                      <span key={a} className="px-2 py-1 bg-red-500/10 text-red-600 text-xs font-medium rounded-sm border border-red-500/20">
+                        Contains {a}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Actions */}
             <div className="flex gap-3 mt-8">
@@ -333,39 +419,91 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
             {/* Tabs */}
             <div className="mt-8 border-t border-border">
               <div className="flex border-b border-border">
-                {["description", "details", "shipping"].map(t => (
-                  <button
-                    key={t}
-                    onClick={() => setActiveTab(t)}
-                    className={`px-5 py-3 font-mono text-[10px] tracking-[0.12em] uppercase transition-colors ${
-                      activeTab === t ? "border-b-2 border-foreground text-foreground -mb-px" : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {t}
-                  </button>
-                ))}
+                {product.productType === 'food' 
+                  ? ["description", "ingredients", "nutrition", "storage"].map(t => (
+                      <button
+                        key={t}
+                        onClick={() => setActiveTab(t)}
+                        className={`px-5 py-3 font-mono text-[10px] tracking-[0.12em] uppercase transition-colors ${
+                          activeTab === t ? "border-b-2 border-foreground text-foreground -mb-px" : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {t === "storage" ? "Storage & Details" : t === "nutrition" ? "Nutritional Facts" : t}
+                      </button>
+                    ))
+                  : ["description", "materials", "size_guide"].map(t => (
+                      <button
+                        key={t}
+                        onClick={() => setActiveTab(t)}
+                        className={`px-5 py-3 font-mono text-[10px] tracking-[0.12em] uppercase transition-colors ${
+                          activeTab === t ? "border-b-2 border-foreground text-foreground -mb-px" : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {t === "materials" ? "Materials & Care" : t === "size_guide" ? "Size Guide" : t}
+                      </button>
+                    ))
+                }
               </div>
               <div className="py-6 text-sm text-muted-foreground leading-relaxed">
                 {activeTab === "description" && (
                   <p>{product.description}</p>
                 )}
-                {activeTab === "details" && (
-                  <div className="grid grid-cols-2 gap-4">
-                    {Object.entries(product.attributes || {}).map(([key, val]) => (
-                      <div key={key} className="flex flex-col">
-                        <span className="font-mono text-[10px] uppercase text-muted-foreground">{key}</span>
-                        <span className="text-foreground">{val}</span>
-                      </div>
-                    ))}
-                    {Object.keys(product.attributes || {}).length === 0 && (
-                      <p>No additional details provided.</p>
-                    )}
+
+                {/* Apparel Tabs */}
+                {activeTab === "materials" && (
+                  <div className="space-y-4">
+                    <p><strong>Material:</strong> {product.attributes?.material || "Standard Fabric"}</p>
+                    <p><strong>Care Instructions:</strong> {product.attributes?.careInstructions || "Machine wash cold. Tumble dry low."}</p>
                   </div>
                 )}
-                {activeTab === "shipping" && (
-                  <div className="space-y-2">
-                    <p><strong className="text-foreground">Local (Nepal):</strong> Standard 1-2 days (Free over रु5000)</p>
-                    <p><strong className="text-foreground">International:</strong> 7-14 days. Duties may apply.</p>
+                {activeTab === "size_guide" && (
+                  <div className="space-y-4">
+                    <p>Size guide information specific to apparel will be rendered here.</p>
+                  </div>
+                )}
+
+                {/* Food Tabs */}
+                {activeTab === "ingredients" && product.foodCompliance && (
+                  <div>
+                    <h4 className="font-medium text-foreground mb-2 font-mono uppercase text-xs tracking-wider">Ingredients</h4>
+                    <p className="text-foreground leading-relaxed">{product.foodCompliance.ingredientsList || "No ingredients listed."}</p>
+                  </div>
+                )}
+                {activeTab === "nutrition" && product.foodCompliance?.nutritionalFacts && (
+                  <div>
+                    <h4 className="font-medium text-foreground mb-3 font-mono uppercase text-xs tracking-wider">Nutritional Facts</h4>
+                    <div className="border border-border rounded-sm overflow-hidden text-sm">
+                      {Object.entries(product.foodCompliance.nutritionalFacts).map(([key, val]) => (
+                        <div key={key} className="flex justify-between border-b border-border last:border-0 p-3 bg-muted/10">
+                          <span className="font-medium text-muted-foreground capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</span>
+                          <span className="text-foreground text-right">{val}</span>
+                        </div>
+                      ))}
+                      {Object.keys(product.foodCompliance.nutritionalFacts).length === 0 && (
+                        <div className="p-3 bg-muted/10">No nutritional facts available.</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {activeTab === "storage" && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      {product.logisticsAttributes?.storageConditions && (
+                        <div className="flex flex-col">
+                          <span className="font-mono text-[10px] uppercase text-muted-foreground">Storage Conditions</span>
+                          <span className="text-foreground mt-1">{product.logisticsAttributes.storageConditions}</span>
+                        </div>
+                      )}
+                      {product.logisticsAttributes?.shelfLife && (
+                        <div className="flex flex-col">
+                          <span className="font-mono text-[10px] uppercase text-muted-foreground">Shelf Life</span>
+                          <span className="text-foreground mt-1">{product.logisticsAttributes.shelfLife}</span>
+                        </div>
+                      )}
+                      {(!product.logisticsAttributes || Object.keys(product.logisticsAttributes).length === 0) && (
+                        <p>No specific storage details provided.</p>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -374,21 +512,14 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
         </div>
 
         {/* Related products */}
-        <div className="mt-24">
-          <h2 className="font-display text-3xl font-light mb-8">You May Also Like</h2>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
-            {PRODUCTS.slice(1, 5).map(p => (
-              <ProductCard
-                key={p.id}
-                product={p}
-                onView={() => { setPage(`product/${p.id}`) }}
-                onAddToCart={(prod) => setCart([...cart, { ...prod, quantity: 1, selectedColor: prod.colors[0], selectedSize: "M" }])}
-                onWishlist={toggleWishlist}
-                isWishlisted={wishlist.includes(p.id)}
-              />
-            ))}
-          </div>
-        </div>
+        <RelatedProducts 
+          product={product} 
+          setPage={setPage} 
+          cart={cart} 
+          setCart={setCart} 
+          wishlist={wishlist} 
+          toggleWishlist={toggleWishlist} 
+        />
       </div>
     </div>
   );
