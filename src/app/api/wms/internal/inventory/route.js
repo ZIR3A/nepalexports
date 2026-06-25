@@ -2,8 +2,47 @@ import { NextResponse } from 'next/server';
 import connectToDatabase from '@/backend/config/db';
 import Product from '@/backend/models/Product';
 import Inventory from '@/backend/models/Inventory';
+import Category from '@/backend/models/Category';
 import WmsAuditLog from '@/backend/models/WmsAuditLog';
 import { authorizeRoles } from '@/backend/middleware/auth';
+
+/**
+ * GET /api/wms/internal/inventory
+ * Unified Portal endpoint for Warehouse Managers to get all physical stock entries.
+ */
+export async function GET(req) {
+  try {
+    await connectToDatabase();
+
+    const authResponse = await authorizeRoles('super_admin', 'admin', 'warehouse_manager');
+    if (authResponse) return authResponse;
+
+    // Fetch all inventory, populate product and warehouse to flatten it on the backend
+    const allInventory = await Inventory.find({})
+      .populate('product', 'name sku status')
+      .populate('warehouse', 'name countryCode');
+
+    const rows = allInventory
+      .filter(inv => inv.product != null && inv.warehouse != null)
+      .map(inv => ({
+        id: inv._id.toString(),
+        productId: inv.product?._id?.toString(),
+        variantId: inv.variantId?.toString() || 'none',
+        sku: inv.product?.sku || 'N/A', // If you have variant sku, you might need to extract it
+        name: inv.product?.name || 'Unknown',
+        warehouse: inv.warehouse?.name || 'Unknown',
+        warehouseId: inv.warehouse?._id?.toString(),
+        qty: inv.quantity || 0,
+        reservedQty: inv.reservedQuantity || 0,
+        status: inv.product?.status || 'Draft',
+      }));
+
+    return NextResponse.json(rows);
+  } catch (error) {
+    console.error('WMS Internal Inventory Fetch Error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
 
 /**
  * POST /api/wms/internal/inventory
@@ -12,7 +51,7 @@ import { authorizeRoles } from '@/backend/middleware/auth';
 export async function POST(req) {
   try {
     await connectToDatabase();
-    
+
     const body = await req.json();
     const { sku, warehouseId, quantityChange, actionType, reason, userId, userRole } = body;
 

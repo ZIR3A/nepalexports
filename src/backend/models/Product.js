@@ -25,17 +25,20 @@ const ProductSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   sku: { type: String, required: true, unique: true },
   slug: { type: String, required: true, unique: true },
-  shortDescription: { type: String },
-  description: { type: String, required: true },
   brand: { type: String },
   
   mainCategory: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', required: true },
   subCategory: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' },
   productType: { type: String, enum: ['standard', 'clothing', 'food', 'electronics', 'custom'], default: 'standard' },
 
-  basePrice: { type: Number, required: true, min: 0 },
-  localPrice: { type: Number, min: 0 },
-  currency: { type: String, default: 'NPR' },
+  pricing: [{
+    country: { type: String, required: true },
+    currency: { type: String, required: true },
+    basePrice: { type: Number, required: true },
+    salePrice: { type: Number },
+    taxRate: { type: Number, default: 0 },
+    isActive: { type: Boolean, default: true }
+  }],
   
   media: [MediaSchema],
   variants: [VariantSchema],
@@ -64,7 +67,6 @@ const ProductSchema = new mongoose.Schema({
   },
 
   isActive: { type: Boolean, default: true },
-  availableCountries: [{ type: String, trim: true }],
   flashSale: { type: FlashSaleSchema, default: () => ({}) },
 
   // === WMS Integration Fields ===
@@ -91,6 +93,8 @@ const ProductSchema = new mongoose.Schema({
 
   // Marketing enrichment data added by admin after WMS draft creation
   enrichment: {
+    shortDescription: { type: String },
+    description: { type: String },
     marketingDescription: { type: String },
     seoTitle: { type: String },
     seoDescription: { type: String },

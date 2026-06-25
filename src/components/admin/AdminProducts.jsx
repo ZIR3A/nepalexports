@@ -30,7 +30,22 @@ export default function AdminProducts() {
     fetchProducts();
   }, []);
 
+  const [isSyncing, setIsSyncing] = useState(false);
 
+  const simulateWmsSync = async () => {
+    setIsSyncing(true);
+    try {
+      // Simulate sync delay
+      await new Promise(res => setTimeout(res, 2000));
+      alert("WMS Sync Simulated Successfully!");
+      fetchProducts();
+    } catch (err) {
+      console.error(err);
+      alert("WMS Sync Failed.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const handleDelete = async (id) => {
     if (!confirm("Are you sure you want to delete this product?")) return;
@@ -89,8 +104,16 @@ export default function AdminProducts() {
                   </TableCell>
                   <TableCell>{p.mainCategory?.name || p.category}</TableCell>
                   <TableCell>
-                    <div>£{p.basePrice}</div>
-                    {p.localPrice ? <div className="text-[10px] text-muted-foreground">Rs. {p.localPrice}</div> : null}
+                    {p.pricing && p.pricing.length > 0 ? (
+                      p.pricing.map((pr, i) => (
+                        <div key={i} className="text-sm">
+                          {pr.currency} {pr.basePrice}
+                          {pr.salePrice ? <span className="text-[10px] text-muted-foreground ml-1">(Sale: {pr.salePrice})</span> : null}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-sm text-muted-foreground">Not set</div>
+                    )}
                   </TableCell>
                   <TableCell>
                     <span className={`px-2 py-1 text-xs rounded-full ${p.isActive ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>

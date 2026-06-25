@@ -16,6 +16,7 @@ export default function EditProductPage() {
   // Data Sources
   const [categories, setCategories] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
+  const [dbRegions, setDbRegions] = useState([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
 
   // Tabs: general, attributes, variants, media
@@ -23,7 +24,8 @@ export default function EditProductPage() {
 
   // Form State
   const [formData, setFormData] = useState({
-    name: "", slug: "", sku: "", basePrice: "", localPrice: "", description: "", brand: "",
+    name: "", slug: "", sku: "", description: "", brand: "",
+    pricing: [],
     status: "published",
     wmsData: {},
     enrichment: { marketingDescription: "", seoTitle: "", seoDescription: "" },
@@ -54,18 +56,19 @@ export default function EditProductPage() {
     Promise.all([
       fetch("/api/categories").then(res => res.json()),
       fetch("/api/warehouses").then(res => res.json()),
+      fetch("/api/regions").then(res => res.json()),
       fetch(`/api/products/${productId}`).then(res => res.json())
-    ]).then(([cats, whs, prodData]) => {
+    ]).then(([cats, whs, regions, prodData]) => {
       setCategories(cats);
       setWarehouses(whs);
+      setDbRegions(regions);
       
       if (prodData) {
         setFormData({
           name: prodData.name || "",
           slug: prodData.slug || "",
           sku: prodData.sku || "",
-          basePrice: prodData.basePrice || "",
-          localPrice: prodData.localPrice || "",
+          pricing: prodData.pricing || [],
           description: prodData.description || "",
           brand: prodData.brand || "",
           status: prodData.status || "published",
@@ -161,12 +164,6 @@ export default function EditProductPage() {
     setVariants(newVariants);
   };
 
-  const updateVariantInventory = (variantIndex, warehouseId, quantity) => {
-    const newVariants = [...variants];
-    if (!newVariants[variantIndex].inventory) newVariants[variantIndex].inventory = {};
-    newVariants[variantIndex].inventory[warehouseId] = quantity;
-    setVariants(newVariants);
-  };
 
   const removeVariant = (index) => {
     setVariants(variants.filter((_, i) => i !== index));
@@ -215,8 +212,7 @@ export default function EditProductPage() {
 
       const payload = {
         ...formData,
-        basePrice: Number(formData.basePrice) || 0,
-        localPrice: Number(formData.localPrice) || 0,
+        pricing: formData.pricing,
         mainCategory,
         subCategory: subCategory || null,
         attributes,
@@ -320,16 +316,99 @@ export default function EditProductPage() {
           </div>
 
           <div className="bg-card border border-border p-6 rounded-md">
-            <h3 className="font-medium mb-4">Pricing & Category</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-medium">Regional Pricing</h3>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="gap-2"
+                onClick={() => setFormData({
+                  ...formData,
+                  pricing: [...formData.pricing, { country: "", currency: "", basePrice: 0, salePrice: null, taxRate: 0, isActive: true }]
+                })}
+              >
+                <Plus size={14} /> Add Region Price
+              </Button>
+            </div>
+            
+            <div className="space-y-4 mb-6">
+              {formData.pricing.map((p, index) => (
+                <div key={index} className="grid grid-cols-6 gap-3 p-4 bg-muted/30 border border-border rounded-md relative">
+                  <button 
+                    onClick={() => {
+                      const newPricing = [...formData.pricing];
+                      newPricing.splice(index, 1);
+                      setFormData({ ...formData, pricing: newPricing });
+                    }} 
+                    className="absolute top-2 right-2 text-red-500 hover:text-red-600"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                  
+                  <div className="space-y-2">
+                    <Label>Country</Label>
+                    <select 
+                      className="w-full border border-border bg-background p-2 rounded-md text-sm outline-none"
+                      value={p.country} 
+                      onChange={e => {
+                        const newP = [...formData.pricing];
+                        const selectedRegion = dbRegions.find(r => r.countryCode === e.target.value);
+                        newP[index].country = e.target.value;
+                        if (selectedRegion) {
+                          newP[index].currency = selectedRegion.currency;
+                          newP[index].taxRate = selectedRegion.taxRate;
+                        }
+                        setFormData({ ...formData, pricing: newP });
+                      }}
+                    >
+                      <option value="">Select Region...</option>
+                      {dbRegions.map(r => <option key={r.countryCode} value={r.countryCode}>{r.name} ({r.countryCode})</option>)}
+                      {!dbRegions.find(r => r.countryCode === p.country) && p.country && <option value={p.country}>{p.country} (Legacy)</option>}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Currency</Label>
+                    <div className="p-2 border border-border bg-muted/50 rounded-md text-sm text-muted-foreground">{p.currency || '-'}</div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Base Price</Label>
+                    <Input type="number" value={p.basePrice} onChange={e => {
+                      const newP = [...formData.pricing];
+                      newP[index].basePrice = Number(e.target.value);
+                      setFormData({ ...formData, pricing: newP });
+                    }} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Sale Price</Label>
+                    <Input type="number" placeholder="Optional" value={p.salePrice || ""} onChange={e => {
+                      const newP = [...formData.pricing];
+                      newP[index].salePrice = e.target.value ? Number(e.target.value) : null;
+                      setFormData({ ...formData, pricing: newP });
+                    }} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Tax Rate (%)</Label>
+                    <div className="p-2 border border-border bg-muted/50 rounded-md text-sm text-muted-foreground">{p.taxRate || '0'}%</div>
+                  </div>
+                  <div className="space-y-2 flex flex-col justify-end">
+                    <label className="flex items-center gap-2 mb-2 text-sm">
+                      <input type="checkbox" checked={p.isActive} onChange={e => {
+                        const newP = [...formData.pricing];
+                        newP[index].isActive = e.target.checked;
+                        setFormData({ ...formData, pricing: newP });
+                      }} />
+                      Active
+                    </label>
+                  </div>
+                </div>
+              ))}
+              {formData.pricing.length === 0 && (
+                <div className="text-center text-sm text-muted-foreground py-4">No regional pricing added.</div>
+              )}
+            </div>
+
+            <h3 className="font-medium mb-4">Category Assignment</h3>
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Base Price (£)</Label>
-                <Input type="number" value={formData.basePrice} onChange={e => setFormData({ ...formData, basePrice: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Local Price (NPR)</Label>
-                <Input type="number" value={formData.localPrice} onChange={e => setFormData({ ...formData, localPrice: e.target.value })} />
-              </div>
               <div className="space-y-2">
                 <Label>Main Category</Label>
                 <select className="w-full border p-2 bg-background rounded-md text-sm" value={mainCategory} onChange={e => handleCategoryChange(e.target.value)}>
@@ -346,32 +425,7 @@ export default function EditProductPage() {
               </div>
             </div>
 
-            <div className="mt-6 pt-6 border-t border-border">
-              <Label className="mb-2 block">Available Countries</Label>
-              <div className="flex gap-4">
-                {[
-                  { code: 'NP', name: 'Nepal' },
-                  { code: 'GB', name: 'United Kingdom' },
-                  { code: 'US', name: 'United States' },
-                  { code: 'AU', name: 'Australia' }
-                ].map(country => (
-                  <label key={country.code} className="flex items-center gap-2 text-sm">
-                    <input 
-                      type="checkbox" 
-                      checked={availableCountries.includes(country.code)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setAvailableCountries([...availableCountries, country.code]);
-                        } else {
-                          setAvailableCountries(availableCountries.filter(c => c !== country.code));
-                        }
-                      }}
-                    />
-                    {country.name}
-                  </label>
-                ))}
-              </div>
-            </div>
+
           </div>
         </div>
       )}
@@ -563,8 +617,8 @@ export default function EditProductPage() {
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="font-medium">Variants & Inventory</h3>
-              <p className="text-sm text-muted-foreground">Manage sizes, colors, and warehouse stock levels.</p>
+              <h3 className="font-medium">Variants</h3>
+              <p className="text-sm text-muted-foreground">Manage sizes and colors.</p>
             </div>
             <Button onClick={addVariant} variant="outline" size="sm" className="gap-2"><Plus size={14} /> Add Variant</Button>
           </div>
@@ -617,18 +671,12 @@ export default function EditProductPage() {
               </div>
 
               <div className="pt-4 border-t border-border mt-4">
-                <Label className="mb-2 block">Warehouse Stock Allocation</Label>
-                <div className="grid grid-cols-3 gap-4">
+                <Label className="mb-2 block">Current Warehouse Stock (Read-Only)</Label>
+                <div className="flex flex-wrap gap-6 text-sm">
                   {warehouses.map(wh => (
-                    <div key={wh._id} className="flex items-center gap-3">
-                      <span className="text-sm text-muted-foreground w-24 truncate">{wh.name}</span>
-                      <Input 
-                        type="number" 
-                        placeholder="Qty" 
-                        className="w-20"
-                        value={v.inventory?.[wh._id] || ""} 
-                        onChange={e => updateVariantInventory(index, wh._id, Number(e.target.value))} 
-                      />
+                    <div key={wh._id} className="flex items-center gap-2">
+                      <span className="text-muted-foreground">{wh.name}:</span>
+                      <span className="font-mono font-medium">{v.inventory?.[wh._id] || 0}</span>
                     </div>
                   ))}
                 </div>

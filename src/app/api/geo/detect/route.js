@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/backend/config/db';
 import Warehouse from '@/backend/models/Warehouse';
+import RegionSettings from '@/backend/models/RegionSettings';
 import { getRegionConfig, SUPPORTED_COUNTRIES, THIRD_COUNTRY_CONFIG } from '@/backend/config/regionConfig';
 
 export async function GET(req) {
@@ -42,6 +43,13 @@ export async function GET(req) {
     // 3. Get region config (handles third-country fallback automatically)
     const regionConfig = getRegionConfig(detectedCountryCode);
 
+    // Fetch tax rate from RegionSettings
+    let taxRate = 0;
+    const regionDb = await RegionSettings.findOne({ countryCode: regionConfig.countryCode });
+    if (regionDb) {
+      taxRate = regionDb.taxRate;
+    }
+
     // 4. Find the warehouse to assign
     let warehouse = null;
     
@@ -81,6 +89,7 @@ export async function GET(req) {
       warehouseName: warehouse.name,
       currency: regionConfig.currency,
       currencySymbol: regionConfig.currencySymbol,
+      taxRate,
       isThirdCountry: regionConfig.isThirdCountry,
       thirdCountryMode: regionConfig.thirdCountryMode,
       canPurchase: regionConfig.canPurchase,

@@ -18,7 +18,7 @@ export async function POST(req) {
     
     // In MVP, we read the simulated user details from headers or body
     const body = await req.json();
-    const { sku, name, quantity, weight, warehouseId, userId, userRole, isFoodItem, batchNumber, expiryDate, storageConditions } = body;
+    const { sku, name, quantity, weight, warehouseId, userId, userRole, isFoodItem, batchNumber, expiryDate, storageConditions, shelfLife } = body;
 
     if (!sku || !name || !warehouseId || quantity === undefined) {
       return NextResponse.json({ error: 'Missing required fields: sku, name, warehouseId, quantity' }, { status: 400 });
@@ -57,6 +57,7 @@ export async function POST(req) {
       },
       logisticsAttributes: isFoodItem ? {
         storageConditions: storageConditions || 'Room Temperature',
+        shelfLife: shelfLife || '',
         certifications: []
       } : undefined,
       variants: [{

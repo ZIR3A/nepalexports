@@ -5,7 +5,9 @@ import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import StarRating from "../StarRating";
 
-export default function ShopPage({ setPage, cart, setCart, wishlist, toggleWishlist, warehouseId, currency, currencySymbol, formatPrice, canPurchase, isThirdCountry }) {
+import { getPriceForRegion } from "@/lib/pricingUtils";
+
+export default function ShopPage({ setPage, cart, setCart, wishlist, toggleWishlist, warehouseId, currency, currencySymbol, formatPrice, canPurchase, isThirdCountry, userCountry }) {
   const [viewMode, setViewMode] = useState("grid");
   const [sort, setSort] = useState("featured");
   const [priceRange, setPriceRange] = useState([0, currency === "NPR" ? 50000 : 200]);
@@ -38,13 +40,14 @@ export default function ShopPage({ setPage, cart, setCart, wishlist, toggleWishl
         // Map backend schema to frontend format expected by ProductCard
         const mappedProducts = data.map(p => {
           const colors = [...new Set(p.variants.map(v => v.color).filter(c => c && c !== "N/A"))];
-          const displayPrice = currency === 'NPR' ? (p.localPrice || p.basePrice) : p.basePrice;
+          const pricing = getPriceForRegion(p, userCountry);
+          const displayPrice = pricing.salePrice || pricing.basePrice;
           return {
             id: p._id,
             name: p.name,
             price: displayPrice,
-            localPrice: p.localPrice,
-            basePrice: p.basePrice,
+            localPrice: pricing.salePrice,
+            basePrice: pricing.basePrice,
             image: p.media[0]?.url || "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=800&auto=format&fit=crop",
             hoverImage: p.media[1]?.url || p.media[0]?.url || "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=800&auto=format&fit=crop",
             colors: colors.length > 0 ? colors : ["#000000"],

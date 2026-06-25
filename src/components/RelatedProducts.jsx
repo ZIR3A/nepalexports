@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import ProductCard from "./ProductCard";
 import { useAppContext } from "@/context/AppContext";
+import { getPriceForRegion } from "@/lib/pricingUtils";
 
 export default function RelatedProducts({ 
   product, 
@@ -15,7 +16,7 @@ export default function RelatedProducts({
   const [recommendations, setRecommendations] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  const { warehouseId, currencySymbol, canPurchase, formatPrice } = useAppContext();
+  const { warehouseId, currencySymbol, canPurchase, formatPrice, userCountry } = useAppContext();
 
   useEffect(() => {
     if (!product || !warehouseId) return;
@@ -39,17 +40,21 @@ export default function RelatedProducts({
         if (res.ok) {
           const rawProducts = await res.json();
           // Map to ProductCard format
-          const mapped = rawProducts.map(p => ({
-            id: p._id,
-            name: p.name,
-            price: p.localPrice || p.basePrice,
+          const mapped = rawProducts.map(p => {
+            const pricing = getPriceForRegion(p, userCountry);
+            const displayPrice = pricing.salePrice || pricing.basePrice;
+            return {
+              id: p._id,
+              name: p.name,
+              price: displayPrice,
             image: p.media?.[0]?.url || "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=800&auto=format&fit=crop",
             hoverImage: p.media?.[1]?.url || p.media?.[0]?.url || "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=800&auto=format&fit=crop",
             colors: p.variants?.map(v => v.attributes?.color).filter(Boolean) || ["#000000"],
             rating: 5,
             reviews: Math.floor(Math.random() * 50) + 10,
             isUnavailable: false
-          }));
+            };
+          });
           setRecommendations(mapped);
         }
       } catch (err) {

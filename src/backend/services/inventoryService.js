@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
-import Batch from '../models/Batch';
-import Inventory from '../models/Inventory';
+import Batch from '../models/Batch.js';
+import Inventory from '../models/Inventory.js';
+import { eventBus } from '../events/eventBus.js';
 
 /**
  * Service to handle inventory operations, including FIFO allocation for batched items.
@@ -74,6 +75,16 @@ export const InventoryService = {
       inventory.quantity -= remainingQuantity;
       await inventory.save();
 
+      // Emit event for inventory reservation
+      eventBus.emit('inventory:reserved', {
+        productId,
+        warehouseId: inventory.warehouse,
+        action: 'reserved',
+        quantity: requestedQuantity,
+        newAvailable: inventory.quantity, // Simple tracking for the event
+        userId: 'system'
+      });
+
       allocations.push({
         warehouseId: inventory.warehouse,
         quantity: requestedQuantity
@@ -98,5 +109,62 @@ export const InventoryService = {
     .populate('product', 'name sku')
     .populate('warehouse', 'name')
     .sort({ expiryDate: 1 });
+  },
+
+  /**
+   * Atomic stock update (Transaction) for manual restocks, damages, recounts.
+   */
+  updateStock: async (productId, warehouseId, action, quantity, userId) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      const inventory = await Inventory.findOne({
+        product: productId,
+        warehouse: warehouseId
+      }).session(session);
+
+      if (!inventory) {
+        throw new Error('Inventory record not found');
+      }
+
+      const previousQty = inventory.quantity;
+
+      // Apply mutation
+      if (action === 'restock' || action === 'returned') {
+        inventory.quantity += quantity;
+      } else if (action === 'damaged') {
+        inventory.quantity -= quantity;
+      } else if (action === 'recount') {
+        inventory.quantity = quantity; // Absolute recount
+      } else if (action === 'fulfilled') {
+        inventory.quantity -= quantity;
+      }
+
+      if (inventory.quantity < 0) {
+        // Emit negative stock alert
+        eventBus.emit('alert:negative_stock', { productId, warehouseId, quantityAvailable: inventory.quantity });
+      }
+
+      await inventory.save({ session });
+      await session.commitTransaction();
+
+      // Emit event after successful commit
+      eventBus.emit(`inventory:${action}`, {
+        productId,
+        warehouseId,
+        action,
+        quantity,
+        newAvailable: inventory.quantity,
+        userId
+      });
+
+      return inventory;
+    } catch (error) {
+      await session.abortTransaction();
+      throw error;
+    } finally {
+      session.endSession();
+    }
   }
 };

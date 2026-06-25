@@ -16,6 +16,8 @@ export async function GET(req, { params }) {
     const { id } = await params;
     const { searchParams } = new URL(req.url);
     const warehouseId = searchParams.get('warehouseId');
+    const countryCode = searchParams.get('countryCode');
+    const admin = searchParams.get('admin');
 
     const product = await Product.findById(id).populate('mainCategory').populate('subCategory');
     if (!product) {
@@ -59,14 +61,26 @@ export async function GET(req, { params }) {
       }
     });
 
-    // Convert product to plain object — toJSON flattens Mongoose Maps (including nested variant.attributes)
+    // Convert product to plain object
     const productObj = product.toJSON();
+
+    // Map enrichment fields to root level for backwards compatibility
+    if (productObj.enrichment) {
+      productObj.description = productObj.enrichment.description || productObj.description;
+      productObj.shortDescription = productObj.enrichment.shortDescription || productObj.shortDescription;
+    }
+
+    // If fetched from storefront (warehouseId is present) and it's completely out of stock there
+    const isUnavailable = warehouseId ? localWarehouseStock === 0 : false;
+    if (warehouseId && admin !== 'true' && isUnavailable) {
+      return NextResponse.json({ message: 'Product not available in your region' }, { status: 404 });
+    }
 
     return NextResponse.json({ 
       ...productObj, 
       totalStock,
       localWarehouseStock,
-      isUnavailable: warehouseId ? localWarehouseStock === 0 : false,
+      isUnavailable,
       inventoryMap
     });
   } catch (error) {
@@ -95,11 +109,18 @@ export async function PUT(req, { params }) {
 
     const productPayload = { ...body, variants: productVariants };
 
+    // Map enrichment fields if they come from the old UI flat structure
+    if (body.description !== undefined || body.shortDescription !== undefined) {
+      productPayload.enrichment = {
+        ...(productPayload.enrichment || {}),
+        description: body.description,
+        shortDescription: body.shortDescription
+      };
+    }
+
     if (productPayload.status === 'published') {
       const productDoc = await Product.findById(id);
       if (productDoc && productDoc.countryDrafts?.length > 0) {
-        const newCountries = [...new Set([...(productDoc.availableCountries || []), ...productDoc.countryDrafts])];
-        productPayload.availableCountries = newCountries;
         productPayload.countryDrafts = [];
       }
     }

@@ -150,8 +150,31 @@ export default function TransfersTab({ warehouses, products, onRefresh }) {
                     }}
                   >
                     <option value="">Select Product...</option>
-                    {products.map(p => <option key={p._id} value={p._id}>{p.name} ({p.sku || 'No SKU'})</option>)}
+                    {products.filter(p => {
+                      if (!newTransfer.sourceWarehouse) return true;
+                      const vId = p.variants?.[0]?._id;
+                      const qty = p.inventoryMap?.[vId]?.byWarehouse?.[newTransfer.sourceWarehouse] || 0;
+                      return qty > 0;
+                    }).map(p => {
+                      let availableStr = "";
+                      if (newTransfer.sourceWarehouse) {
+                         const vId = p.variants?.[0]?._id;
+                         const qty = p.inventoryMap?.[vId]?.byWarehouse?.[newTransfer.sourceWarehouse] || 0;
+                         availableStr = ` - Available: ${qty}`;
+                      }
+                      return <option key={p._id} value={p._id}>{p.name} ({p.sku || 'No SKU'}){availableStr}</option>
+                    })}
                   </select>
+                  {item.productId && newTransfer.sourceWarehouse && (() => {
+                    const selectedP = products.find(p => p._id === item.productId);
+                    const vId = selectedP?.variants?.[0]?._id;
+                    const availQty = selectedP?.inventoryMap?.[vId]?.byWarehouse?.[newTransfer.sourceWarehouse] || 0;
+                    return (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Available to transfer: <span className="font-medium text-foreground">{availQty}</span>
+                      </p>
+                    );
+                  })()}
                 </div>
                 <div className="w-32 space-y-2">
                   <Input 

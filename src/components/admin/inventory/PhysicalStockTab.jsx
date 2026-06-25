@@ -36,7 +36,8 @@ export default function PhysicalStockTab({ warehouses, inventory, auditLogs, isL
       isFoodItem,
       batchNumber: isFoodItem ? fd.get("batchNumber") : undefined,
       expiryDate: isFoodItem ? fd.get("expiryDate") : undefined,
-      storageConditions: isFoodItem ? fd.get("storageConditions") : undefined
+      storageConditions: isFoodItem ? fd.get("storageConditions") : undefined,
+      shelfLife: isFoodItem ? fd.get("shelfLife") : undefined
     };
 
     try {
@@ -279,7 +280,11 @@ export default function PhysicalStockTab({ warehouses, inventory, auditLogs, isL
                       <Label>Expiry Date</Label>
                       <Input type="date" name="expiryDate" required={isFoodItem} />
                     </div>
-                    <div className="space-y-2 col-span-2">
+                    <div className="space-y-2">
+                      <Label>Shelf Life</Label>
+                      <Input name="shelfLife" placeholder="e.g. 6 Months" required={isFoodItem} />
+                    </div>
+                    <div className="space-y-2">
                       <Label>Storage Conditions</Label>
                       <select name="storageConditions" required={isFoodItem} className="w-full border border-border bg-background p-2 rounded-md text-sm outline-none">
                         <option value="Room Temperature">Room Temperature</option>

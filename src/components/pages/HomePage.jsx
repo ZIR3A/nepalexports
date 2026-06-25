@@ -4,8 +4,9 @@ import { ArrowRight, Star, Loader2, AlertTriangle } from "lucide-react";
 import ProductCard from "../ProductCard";
 import { Button } from "../ui/button";
 import StarRating from "../StarRating";
+import { getPriceForRegion } from "@/lib/pricingUtils";
 
-export default function HomePage({ setPage, cart, setCart, wishlist, toggleWishlist, warehouseId, currency, currencySymbol, formatPrice, canPurchase, isThirdCountry }) {
+export default function HomePage({ setPage, cart, setCart, wishlist, toggleWishlist, warehouseId, currency, currencySymbol, formatPrice, canPurchase, isThirdCountry, userCountry }) {
   const [activeTab, setActiveTab] = useState(0);
   const tabs = ["New Arrivals", "Best Sellers", "On Sale"];
   
@@ -28,14 +29,15 @@ export default function HomePage({ setPage, cart, setCart, wishlist, toggleWishl
         
         const mappedProducts = data.slice(0, 8).map(p => {
           const colors = [...new Set(p.variants.map(v => v.color).filter(c => c && c !== "N/A"))];
-          // Use localPrice for NPR, basePrice for GBP
-          const displayPrice = currency === 'NPR' ? (p.localPrice || p.basePrice) : p.basePrice;
+          const pricing = getPriceForRegion(p, userCountry);
+          const displayPrice = pricing.salePrice || pricing.basePrice;
+          
           return {
             id: p._id,
             name: p.name,
             price: displayPrice,
-            localPrice: p.localPrice,
-            basePrice: p.basePrice,
+            localPrice: pricing.salePrice,
+            basePrice: pricing.basePrice,
             image: p.media[0]?.url || "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=800&auto=format&fit=crop",
             hoverImage: p.media[1]?.url || p.media[0]?.url || "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=800&auto=format&fit=crop",
             colors: colors.length > 0 ? colors : ["#000000"],

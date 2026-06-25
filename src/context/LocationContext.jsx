@@ -7,36 +7,39 @@ const LocationContext = createContext();
 const STORAGE_KEY = "exporthub_user_location";
 
 export function LocationProvider({ children }) {
-  const [locationData, setLocationData] = useState({
-    countryCode: null,
-    countryName: null,
-    warehouseId: null,
-    warehouseName: null,
-    currency: "GBP",
-    currencySymbol: "£",
-    isThirdCountry: false,
-    thirdCountryMode: null,
-    canPurchase: true,
-    isLoading: true,
-    hasSelected: false, // Whether the user has manually chosen a location
-  });
-
-  // Load persisted location from localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        setLocationData({
-          ...parsed,
-          isLoading: false,
-          hasSelected: true,
-        });
-        return; // Don't auto-detect if user has a saved choice
-      } catch (e) {
-        localStorage.removeItem(STORAGE_KEY);
+  const [locationData, setLocationData] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          return {
+            ...parsed,
+            isLoading: false,
+            hasSelected: true,
+          };
+        } catch (e) {}
       }
     }
+    return {
+      countryCode: null,
+      countryName: null,
+      warehouseId: null,
+      warehouseName: null,
+      currency: "GBP",
+      currencySymbol: "£",
+      taxRate: 0,
+      isThirdCountry: false,
+      thirdCountryMode: null,
+      canPurchase: true,
+      isLoading: true,
+      hasSelected: false,
+    };
+  });
+
+  // Auto-detect if no choice is saved
+  useEffect(() => {
+    if (locationData.hasSelected) return;
 
     // Auto-detect via IP geolocation
     detectLocation();
@@ -56,6 +59,7 @@ export function LocationProvider({ children }) {
         warehouseName: data.warehouseName,
         currency: data.currency,
         currencySymbol: data.currencySymbol,
+        taxRate: data.taxRate || 0,
         isThirdCountry: data.isThirdCountry,
         thirdCountryMode: data.thirdCountryMode,
         canPurchase: data.canPurchase,
@@ -97,6 +101,7 @@ export function LocationProvider({ children }) {
         warehouseName: data.warehouseName,
         currency: data.currency,
         currencySymbol: data.currencySymbol,
+        taxRate: data.taxRate || 0,
         isThirdCountry: data.isThirdCountry,
         thirdCountryMode: data.thirdCountryMode,
         canPurchase: data.canPurchase,
@@ -108,6 +113,9 @@ export function LocationProvider({ children }) {
 
       // Persist to localStorage
       localStorage.setItem(STORAGE_KEY, JSON.stringify(newData));
+      
+      // Force a hard reload to ensure all app states, carts, and catalogs reset cleanly for the new region
+      window.location.reload();
     } catch (err) {
       console.error("Manual country set error:", err);
       setLocationData(prev => ({ ...prev, isLoading: false }));

@@ -7,11 +7,12 @@ import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import StarRating from "../StarRating";
 import { useAppContext } from "../../context/AppContext";
+import { getPriceForRegion } from "@/lib/pricingUtils";
 
 export default function ProductDetailPage({ setPage, cart, setCart, wishlist, toggleWishlist }) {
   const params = useParams();
   const id = params?.id;
-  const { userCountry } = useAppContext();
+  const { userCountry, locationLoading, warehouseId } = useAppContext();
 
   const [product, setProduct] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -30,19 +31,39 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
     const fetchProduct = async () => {
       try {
         setIsLoading(true);
-        const res = await fetch(`/api/products/${id}`);
-        if (!res.ok) throw new Error("Failed to fetch product details");
+        setError(null);
+        let url = `/api/products/${id}`;
+        if (warehouseId) {
+          url += `?warehouseId=${warehouseId}`;
+        }
+        const res = await fetch(url);
+        
+        if (!res.ok) {
+          let errMsg = "Failed to fetch product details";
+          try {
+            const errData = await res.json();
+            if (errData.message) errMsg = errData.message;
+          } catch(e) {}
+          throw new Error(errMsg);
+        }
+        
         const data = await res.json();
         
         // Extract sizes and colors from new variants attributes map
         const colors = [...new Set(data.variants.map(v => v.attributes?.color).filter(c => c && c !== "N/A"))];
         const sizes = [...new Set(data.variants.map(v => v.attributes?.size).filter(s => s && s !== "N/A"))];
         
+        const pricing = getPriceForRegion(data, userCountry);
+        const displayPrice = pricing.salePrice || pricing.basePrice;
+
         const mappedProduct = {
           id: data._id,
           name: data.name,
           description: data.description,
-          price: data.basePrice,
+          price: displayPrice,
+          basePrice: pricing.basePrice,
+          salePrice: pricing.salePrice,
+          currency: pricing.currency || 'NPR',
           images: data.media.map(m => m.url),
           colors: colors.length > 0 ? colors : ["#000000"],
           sizes: sizes.length > 0 ? sizes : ["Standard"],
@@ -54,9 +75,9 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
           attributes: data.attributes || {},
           foodCompliance: data.foodCompliance || null,
           logisticsAttributes: data.logisticsAttributes || null,
-          availableCountries: data.availableCountries || ["GB", "NP"],
           inventoryMap: data.inventoryMap || {},
-          variantsData: data.variants || []
+          variantsData: data.variants || [],
+          pricing: data.pricing || []
         };
         
         setProduct(mappedProduct);
@@ -70,7 +91,7 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
     };
     
     fetchProduct();
-  }, [id]);
+  }, [id, warehouseId, userCountry]);
 
   const addToCart = () => {
     if (!product) return;
@@ -79,7 +100,7 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
     setTimeout(() => setAdded(false), 2000);
   };
 
-  if (isLoading) {
+  if (isLoading || locationLoading) {
     return (
       <div className="pt-[72px] min-h-screen flex items-center justify-center">
         <Loader2 className="animate-spin text-muted-foreground" size={48} />
@@ -99,8 +120,8 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
     );
   }
 
-  // Check if product is available in user's country
-  if (product.availableCountries && product.availableCountries.length > 0 && !product.availableCountries.includes(userCountry)) {
+  const hasRegionalPricing = product.pricing && product.pricing.some(pr => pr.country === userCountry && pr.isActive);
+  if (!hasRegionalPricing) {
     return (
       <div className="pt-[72px] min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -176,7 +197,26 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
             <StarRating rating={product.rating} count={product.reviews} />
 
             <div className="flex items-center gap-4 mt-4 pb-4 border-b border-border mb-6">
-              <span className="font-mono text-3xl font-medium text-foreground">रु{product.price}</span>
+              {product.salePrice && product.salePrice < product.basePrice ? (
+                <>
+                  <span className="font-mono text-3xl font-medium text-foreground">
+                    {product.currency === 'GBP' ? '£' : product.currency === 'NPR' ? 'रु' : product.currency}
+                    {product.salePrice}
+                  </span>
+                  <span className="font-mono text-xl text-muted-foreground line-through">
+                    {product.currency === 'GBP' ? '£' : product.currency === 'NPR' ? 'रु' : product.currency}
+                    {product.basePrice}
+                  </span>
+                  <span className="bg-red-500/10 text-red-600 px-2 py-1 rounded text-xs font-bold uppercase tracking-wider">
+                    Sale
+                  </span>
+                </>
+              ) : (
+                <span className="font-mono text-3xl font-medium text-foreground">
+                  {product.currency === 'GBP' ? '£' : product.currency === 'NPR' ? 'रु' : product.currency}
+                  {product.basePrice}
+                </span>
+              )}
             </div>
 
             {/* Dietary Tags */}

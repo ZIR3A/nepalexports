@@ -31,46 +31,22 @@ export default function AdminInventory() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [whRes, prodRes, logRes] = await Promise.all([
+      const [whRes, prodRes, logRes, invRes] = await Promise.all([
         fetch("/api/warehouses"),
         fetch("/api/products?admin=true"),
-        fetch("/api/wms/audit")
+        fetch("/api/wms/audit"),
+        fetch("/api/wms/internal/inventory")
       ]);
       const whData = await whRes.json();
       const prodData = await prodRes.json();
       const logData = await logRes.json();
+      const invData = await invRes.json();
 
       setWarehouses(whData);
       setProducts(Array.isArray(prodData) ? prodData : []);
       
-      // Build flattened inventory for the Physical Stock tab
-      const rows = [];
-      if (Array.isArray(prodData)) {
-        prodData.forEach(p => {
-          p.variants?.forEach(v => {
-            whData.forEach(wh => {
-              const qty = p.inventoryMap?.[v._id]?.byWarehouse?.[wh._id] || 0;
-              const reservedQty = p.inventoryMap?.[v._id]?.reservedByWarehouse?.[wh._id] || 0;
-              
-              // Only push to inventory view if there is a record or it's a primary warehouse,
-              // or just push all for simplicity if we want to show 0 stocks.
-              rows.push({
-                id: `${p._id}-${v._id}-${wh._id}`,
-                productId: p._id,
-                variantId: v._id,
-                sku: v.sku,
-                name: p.name,
-                warehouse: wh.name,
-                warehouseId: wh._id,
-                qty: qty,
-                reservedQty: reservedQty,
-                status: p.status,
-              });
-            });
-          });
-        });
-      }
-      setInventory(rows);
+      // The backend directly serves the exact physical inventory rows based on actual Warehouse logs!
+      setInventory(Array.isArray(invData) ? invData : []);
       setAuditLogs(Array.isArray(logData) ? logData : []);
     } catch (err) {
       console.error(err);
