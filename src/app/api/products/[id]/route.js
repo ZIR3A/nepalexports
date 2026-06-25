@@ -9,19 +9,54 @@ import { existsSync } from 'fs';
 import { del } from '@vercel/blob';
 import { authorizeRoles } from '@/backend/middleware/auth';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(req, { params }) {
   try {
     await connectToDatabase();
     
     const { id } = await params;
     const { searchParams } = new URL(req.url);
-    const warehouseId = searchParams.get('warehouseId');
+    const warehouseHeader = req.headers.get('x-warehouse-id');
+    const warehouseId = warehouseHeader || searchParams.get('warehouseId');
     const countryCode = searchParams.get('countryCode');
     const admin = searchParams.get('admin');
+
+    let activeWarehouseIds = [];
+    let activeRegionId = null;
+
+    if (countryCode) {
+      const whs = await Warehouse.find({ countryCode: countryCode, status: 'Active' });
+      activeWarehouseIds = whs.map(w => String(w._id));
+      const RegionSettings = (await import('@/backend/models/RegionSettings')).default;
+      const region = await RegionSettings.findOne({ countryCode });
+      if (region) activeRegionId = String(region._id);
+    } else if (warehouseId) {
+      activeWarehouseIds = [warehouseId];
+      const wh = await Warehouse.findById(warehouseId);
+      if (wh && wh.countryCode) {
+        const RegionSettings = (await import('@/backend/models/RegionSettings')).default;
+        const region = await RegionSettings.findOne({ countryCode: wh.countryCode });
+        if (region) activeRegionId = String(region._id);
+      }
+    }
 
     const product = await Product.findById(id).populate('mainCategory').populate('subCategory');
     if (!product) {
       return NextResponse.json({ message: 'Product not found' }, { status: 404 });
+    }
+
+    // Explicit Allowed Regions Block
+    if (admin !== 'true') {
+      if (product.allowedRegions && product.allowedRegions.length > 0) {
+        const isAllowed = activeRegionId ? product.allowedRegions.map(String).includes(activeRegionId) : false;
+        if (!isAllowed) {
+          return NextResponse.json({ 
+            error: "This product is currently not available in your region due to local restrictions.",
+            code: "REGION_RESTRICTED" 
+          }, { status: 403 });
+        }
+      }
     }
 
     // Fetch inventory for all variants across all warehouses
@@ -29,14 +64,14 @@ export async function GET(req, { params }) {
     
     // Aggregate total stock simply
     let totalStock = 0;
-    let localWarehouseStock = 0;
+    let localRegionStock = 0;
     const inventoryMap = {};
 
     inventory.forEach(inv => {
       totalStock += inv.quantity;
       const vid = String(inv.variantId);
       if (!inventoryMap[vid]) {
-        inventoryMap[vid] = { total: 0, byCountry: { NP: 0, GB: 0, Transit: 0 }, byWarehouse: {} };
+        inventoryMap[vid] = { total: 0, byCountry: {}, byWarehouse: {} };
       }
       inventoryMap[vid].total += inv.quantity;
       
@@ -44,20 +79,18 @@ export async function GET(req, { params }) {
       const whId = String(inv.warehouse?._id);
       inventoryMap[vid].byWarehouse[whId] = (inventoryMap[vid].byWarehouse[whId] || 0) + inv.quantity;
       
-      // Track stock in the user's specific warehouse
-      if (warehouseId && whId === warehouseId) {
-        localWarehouseStock += inv.quantity;
+      // Track stock in the user's specific region
+      if (activeWarehouseIds.includes(whId)) {
+        localRegionStock += inv.quantity;
       }
 
+      const whCountryCode = inv.warehouse?.countryCode;
       const whName = inv.warehouse?.name?.toLowerCase() || '';
-      const whCountry = inv.warehouse?.country || '';
 
       if (whName.includes('transit')) {
-        inventoryMap[vid].byCountry.Transit += inv.quantity;
-      } else if (whCountry === 'Nepal' || whName.includes('nepal')) {
-        inventoryMap[vid].byCountry.NP += inv.quantity;
-      } else if (whCountry === 'United Kingdom' || whName.includes('uk')) {
-        inventoryMap[vid].byCountry.GB += inv.quantity;
+        inventoryMap[vid].byCountry.Transit = (inventoryMap[vid].byCountry.Transit || 0) + inv.quantity;
+      } else if (whCountryCode) {
+        inventoryMap[vid].byCountry[whCountryCode] = (inventoryMap[vid].byCountry[whCountryCode] || 0) + inv.quantity;
       }
     });
 
@@ -70,17 +103,26 @@ export async function GET(req, { params }) {
       productObj.shortDescription = productObj.enrichment.shortDescription || productObj.shortDescription;
     }
 
-    // If fetched from storefront (warehouseId is present) and it's completely out of stock there
-    const isUnavailable = warehouseId ? localWarehouseStock === 0 : false;
-    if (warehouseId && admin !== 'true' && isUnavailable) {
-      return NextResponse.json({ message: 'Product not available in your region' }, { status: 404 });
+    // If fetched from storefront (activeWarehouseIds is present) and it's completely out of stock there
+    let fulfillmentStatus = 'OUT_OF_STOCK';
+    let isUnavailable = false;
+
+    if (localRegionStock > 0) {
+      fulfillmentStatus = 'IN_STOCK';
+    } else if (totalStock > 0) {
+      fulfillmentStatus = 'AVAILABLE_VIA_IMPORT';
     }
+    isUnavailable = totalStock === 0;
+    
+    // We intentionally DO NOT return 404 here anymore so the storefront can render the product 
+    // page but display the "Out of Stock" state gracefully instead of "Product Not Found".
 
     return NextResponse.json({ 
       ...productObj, 
       totalStock,
-      localWarehouseStock,
+      localWarehouseStock: localRegionStock, // Maintain backwards compatibility for frontend
       isUnavailable,
+      fulfillmentStatus,
       inventoryMap
     });
   } catch (error) {
@@ -130,28 +172,9 @@ export async function PUT(req, { params }) {
       return NextResponse.json({ message: 'Product not found' }, { status: 404 });
     }
 
-    // Map the inventoryData to the new Inventory collection
-    // First, optionally clear existing inventory for this product if we are completely resetting it?
-    // Or just update/create based on the new payload. For simplicity, we can remove old inventory and recreate
-    await Inventory.deleteMany({ product: id });
-    
-    for (let i = 0; i < rawVariants.length; i++) {
-      const rawVariant = rawVariants[i];
-      const savedVariant = product.variants[i];
-      
-      if (rawVariant.inventoryData && Object.keys(rawVariant.inventoryData).length > 0) {
-        for (const [warehouseId, quantity] of Object.entries(rawVariant.inventoryData)) {
-          if (quantity > 0) {
-            await Inventory.create({
-              product: product._id,
-              variantId: savedVariant._id,
-              warehouse: warehouseId,
-              quantity: quantity
-            });
-          }
-        }
-      }
-    }
+    // Inventory should NOT be mutated by the Admin UI.
+    // Inventory is strictly managed by the WMS sync endpoints.
+    // We intentionally leave the Inventory collection untouched during a product metadata update.
 
     return NextResponse.json({ message: 'Product updated successfully', product, success: true });
   } catch (error) {

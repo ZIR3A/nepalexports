@@ -3,6 +3,7 @@ import connectToDatabase from '@/backend/config/db';
 import Product from '@/backend/models/Product';
 import Warehouse from '@/backend/models/Warehouse';
 import Inventory from '@/backend/models/Inventory';
+import RegionSettings from '@/backend/models/RegionSettings';
 
 export async function POST(req) {
   try {
@@ -14,124 +15,152 @@ export async function POST(req) {
       return NextResponse.json({ error: "Cart is empty" }, { status: 400 });
     }
 
-    // Determine the warehouse based on country
-    const isNepal = country === 'NP';
-    const warehouseName = isNepal ? 'Nepal Warehouse' : 'UK Warehouse';
-    const warehouse = await Warehouse.findOne({ name: warehouseName });
-
-    if (!warehouse) {
-      return NextResponse.json({ error: "Warehouse configuration error" }, { status: 500 });
+    // 1. Fetch Region Settings
+    const region = await RegionSettings.findOne({ countryCode: country, isActive: true });
+    if (!region) {
+      return NextResponse.json({ error: "Shopping region is not currently supported or inactive." }, { status: 400 });
     }
 
-    // Currency and Tax Rules
-    const currency = isNepal ? 'NPR' : 'GBP';
-    // Exchange rate: 1 GBP = ~170 NPR (mock)
-    const conversionRate = isNepal ? 170 : 1;
-    const taxRate = isNepal ? 0.13 : 0.20; // 13% VAT for Nepal, 20% for UK/EU
+    const currency = region.currency;
+    const taxRate = region.taxRate || 0;
 
+    // 2. Fetch warehouses
+    const regionalWarehouses = await Warehouse.find({ countryCode: country, status: 'Active' });
+    const allWarehouses = await Warehouse.find({ status: 'Active' });
+    
+    if (!regionalWarehouses || regionalWarehouses.length === 0) {
+      return NextResponse.json({ error: "No active warehouses found for this region." }, { status: 400 });
+    }
+
+    const regionalWIds = regionalWarehouses.map(w => String(w._id));
+    const allWIds = allWarehouses.map(w => String(w._id));
+
+    // 3. Process inventory for all items in the cart
     let subtotal = 0;
+    let totalImportFees = 0;
     const validatedItems = [];
-    const stockErrors = [];
+    const reservationsToApply = [];
+    const usedWarehouseIds = new Set();
     const now = new Date();
 
-    // Verify stock and price for each item
     for (const item of items) {
       const product = await Product.findById(item.id);
       if (!product) {
-        stockErrors.push(`${item.name} is no longer available.`);
-        continue;
+        return NextResponse.json({ error: "Stock validation failed", details: [`${item.name} is no longer available.`] }, { status: 400 });
       }
 
-      // Find the specific variant the user selected
-      const variant = product.variants?.find(v => v.attributes?.color === item.selectedColor && v.attributes?.size === item.selectedSize);
-      if (!variant) {
-        stockErrors.push(`Variant for ${item.name} (${item.selectedSize}, ${item.selectedColor}) is invalid.`);
-        continue;
-      }
-
-      // We prioritize inventory in userCountry. If userCountry has enough stock, we reserve there.
-      // Otherwise we reserve in Transit, or Nepal (import).
-      const inventoryRecords = await Inventory.find({ product: item.id, variantId: variant._id }).populate('warehouse');
-      
-      let requiredQty = item.quantity;
-      
-      // Sort warehouses by priority: userCountry > Transit > Others
-      inventoryRecords.sort((a, b) => {
-        const aCode = (a.warehouse?.country === 'United Kingdom' || a.warehouse?.name?.includes('UK')) ? 'GB' : (a.warehouse?.country === 'Nepal' || a.warehouse?.name?.includes('Nepal')) ? 'NP' : '';
-        const bCode = (b.warehouse?.country === 'United Kingdom' || b.warehouse?.name?.includes('UK')) ? 'GB' : (b.warehouse?.country === 'Nepal' || b.warehouse?.name?.includes('Nepal')) ? 'NP' : '';
-        
-        if (aCode === country) return -1;
-        if (bCode === country) return 1;
-        if (a.warehouse?.name?.toLowerCase().includes('transit')) return -1;
-        if (b.warehouse?.name?.toLowerCase().includes('transit')) return 1;
-        return 0;
+      const variant = product.variants?.find(v => {
+        if (item.productType === 'food' || (product.category || '').toLowerCase() === 'food') {
+          const flavor = v.attributes?.get ? v.attributes.get('flavor') : v.attributes?.flavor;
+          const weight = v.attributes?.get ? v.attributes.get('weight') : v.attributes?.weight;
+          const packSize = v.attributes?.get ? v.attributes.get('packSize') : v.attributes?.packSize;
+          const matchFlavor = flavor === item.selectedColor || flavor === 'N/A' || !flavor;
+          const matchWeight = weight === item.selectedSize || packSize === item.selectedSize || weight === 'N/A' || !weight;
+          return matchFlavor && matchWeight;
+        }
+        const size = v.attributes?.get ? v.attributes.get('size') : v.attributes?.size;
+        const color = v.attributes?.get ? v.attributes.get('color') : v.attributes?.color;
+        return (size === item.selectedSize || size === 'N/A') && (color === item.selectedColor || color === 'N/A');
       });
+      if (!variant) {
+        return NextResponse.json({ error: "Stock validation failed", details: [`Variant for ${item.name} is invalid.`] }, { status: 400 });
+      }
 
-      let reservedForThisItem = 0;
-      const reservationsForItem = [];
+      let requiredQty = item.quantity;
+      let isImportedItem = false;
+      let fulfilled = false;
 
-      for (const inv of inventoryRecords) {
-        if (requiredQty === 0) break;
-        
+      // 3a. Try local regional warehouses first
+      const localInventories = await Inventory.find({ product: product._id, variantId: variant._id, warehouse: { $in: regionalWIds } });
+      
+      // Sort local inventories by available quantity descending (fulfill from "most stock" warehouse first)
+      localInventories.sort((a, b) => (b.quantity - (b.reservedQuantity || 0)) - (a.quantity - (a.reservedQuantity || 0)));
+
+      for (const inv of localInventories) {
+        if (fulfilled) break;
         const available = inv.quantity - (inv.reservedQuantity || 0);
-        if (available > 0) {
-          const reserveAmt = Math.min(available, requiredQty);
-          reservationsForItem.push({ invId: inv._id, amount: reserveAmt });
-          requiredQty -= reserveAmt;
-          reservedForThisItem += reserveAmt;
+        if (available >= requiredQty) {
+          reservationsToApply.push({ invId: inv._id, amount: requiredQty });
+          usedWarehouseIds.add(String(inv.warehouse));
+          fulfilled = true;
         }
       }
 
-      if (requiredQty > 0) {
-        stockErrors.push(`Only ${reservedForThisItem} items left in stock for ${item.name}.`);
-      } else {
-        // We will apply reservations if everything is successful
-        item.reservations = reservationsForItem;
+      // 3b. If still not fulfilled, and product allows import, check global warehouses
+      if (!fulfilled && product.allowImport && item.fulfillmentStatus === 'AVAILABLE_VIA_IMPORT') {
+        const globalInventories = await Inventory.find({ product: product._id, variantId: variant._id, warehouse: { $in: allWIds, $nin: regionalWIds } });
+        
+        // Sort global inventories by available quantity descending
+        globalInventories.sort((a, b) => (b.quantity - (b.reservedQuantity || 0)) - (a.quantity - (a.reservedQuantity || 0)));
+
+        for (const inv of globalInventories) {
+          if (fulfilled) break;
+          const available = inv.quantity - (inv.reservedQuantity || 0);
+          if (available >= requiredQty) {
+            reservationsToApply.push({ invId: inv._id, amount: requiredQty });
+            usedWarehouseIds.add(String(inv.warehouse));
+            isImportedItem = true;
+            fulfilled = true;
+          }
+        }
       }
 
-      // Determine the active price (checking for flash sale)
-      let activeBasePrice = product.basePrice;
+      // 3c. If we couldn't fulfill the entire quantity from a single warehouse
+      if (!fulfilled) {
+        return NextResponse.json({ 
+          error: "Stock validation failed", 
+          details: [`Not enough stock available for ${item.name} (${item.selectedColor}, ${item.selectedSize}).`] 
+        }, { status: 400 });
+      }
+
+      // 3d. Flat Import Surcharge (once per item type)
+      if (isImportedItem && product.importSurcharge > 0) {
+        totalImportFees += product.importSurcharge;
+      }
+
+      // Determine price
+      let basePrice = product.basePrice;
+      let salePrice = product.basePrice;
+
+      // Check regional pricing overrides
+      const regionalPricing = product.pricing?.find(p => p.country === country && p.isActive);
+      if (regionalPricing) {
+        basePrice = regionalPricing.basePrice;
+        salePrice = regionalPricing.salePrice || regionalPricing.basePrice;
+      }
+
+      // Flash sale overrides everything if active
       if (product.flashSale?.isActive && product.flashSale?.expiresAt > now) {
-        activeBasePrice = product.flashSale.price;
+        salePrice = product.flashSale.price;
+        basePrice = product.basePrice; // Ensure basePrice is set so cross-out shows
       }
 
-      // Calculate price
-      const basePriceInLocalCurrency = activeBasePrice * conversionRate;
-      subtotal += basePriceInLocalCurrency * item.quantity;
+      subtotal += salePrice * item.quantity;
 
       validatedItems.push({
         ...item,
-        price: basePriceInLocalCurrency,
-        originalPrice: product.basePrice * conversionRate,
+        price: salePrice,
+        originalPrice: basePrice,
+        fulfillmentStatus: isImportedItem ? 'AVAILABLE_VIA_IMPORT' : 'IN_STOCK',
       });
     }
 
-    if (stockErrors.length > 0) {
-      return NextResponse.json({ error: "Stock validation failed", details: stockErrors }, { status: 400 });
-    }
+    // 4. Do not apply reservations during validation!
+    // Reservations should only be applied when the order is successfully placed in the main checkout endpoint.
 
-    // Apply Reservations
-    for (const item of validatedItems) {
-      if (item.reservations) {
-        for (const res of item.reservations) {
-          await Inventory.findByIdAndUpdate(res.invId, {
-            $inc: { reservedQuantity: res.amount }
-          });
-        }
-        delete item.reservations; // clean up payload
-      }
-    }
-
-    // Shipping Rules
+    // 5. Shipping Rules
+    // Simple mock logic for regional shipping. In real app, calculate based on weight/rules
     let shippingCost = 0;
-    if (isNepal) {
-      shippingCost = subtotal > 5000 ? 0 : 200; // Free over 5000 NPR, else 200 NPR
-    } else {
-      shippingCost = subtotal > 80 ? 0 : 5.99; // Free over £80, else £5.99
+    if (country === 'NP') {
+      shippingCost = subtotal > 5000 ? 0 : 200; // Free over 5000 NPR
+    } else if (country === 'GB') {
+      shippingCost = subtotal > 80 ? 0 : 5.99; // Free over £80
+    } else if (country === 'US') {
+      shippingCost = subtotal > 100 ? 0 : 10;
     }
 
-    const taxAmount = subtotal * taxRate;
-    const total = subtotal + shippingCost + taxAmount;
+    const taxAmount = subtotal * (taxRate / 100);
+    const total = subtotal + shippingCost + taxAmount + totalImportFees;
 
     return NextResponse.json({
       currency,
@@ -139,9 +168,10 @@ export async function POST(req) {
       shippingCost,
       taxRate,
       taxAmount,
+      importFees: totalImportFees,
       total,
       items: validatedItems,
-      warehouseId: warehouse._id,
+      warehouseIds: Array.from(usedWarehouseIds),
     }, { status: 200 });
 
   } catch (error) {

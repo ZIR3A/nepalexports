@@ -5,19 +5,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { MapPin, ChevronDown, Check, Globe } from "lucide-react";
 import { useLocation } from "@/context/LocationContext";
 
-const COUNTRIES = [
-  { code: "NP", name: "Nepal", flag: "🇳🇵", currency: "NPR", symbol: "रु" },
-  { code: "GB", name: "United Kingdom", flag: "🇬🇧", currency: "GBP", symbol: "£" },
-];
-
-const OTHER_COUNTRIES = [
-  { code: "US", name: "United States", flag: "🇺🇸" },
-  { code: "AU", name: "Australia", flag: "🇦🇺" },
-  { code: "CA", name: "Canada", flag: "🇨🇦" },
-  { code: "IN", name: "India", flag: "🇮🇳" },
-  { code: "DE", name: "Germany", flag: "🇩🇪" },
-  { code: "JP", name: "Japan", flag: "🇯🇵" },
-];
+// Removing static lists since we fetch dynamic activeRegions
 
 /**
  * Helper to get a flag emoji based on country code
@@ -35,14 +23,14 @@ const getFlagEmoji = (countryCode) => {
  * First-visit modal that asks the user to select their shopping location.
  */
 export function LocationModal() {
-  const { hasSelected, isLoading, setManualWarehouse, activeWarehouses } = useLocation();
+  const { hasSelected, isLoading, setManualRegion, activeRegions } = useLocation();
   const [isOpen, setIsOpen] = useState(true);
 
   // Don't show if already selected or still loading
   if (hasSelected || isLoading || !isOpen) return null;
 
-  const handleSelect = async (id) => {
-    await setManualWarehouse(id);
+  const handleSelect = async (countryCode) => {
+    await setManualRegion(countryCode);
     setIsOpen(false);
   };
 
@@ -76,29 +64,31 @@ export function LocationModal() {
             We&apos;ll show you products available in your region with local pricing.
           </p>
 
-          {/* Primary country options */}
+          {/* Primary region options */}
           <div className="space-y-3 mb-4 max-h-[300px] overflow-y-auto">
-            {activeWarehouses?.length > 0 ? (
-              activeWarehouses.map((w) => (
+            {activeRegions?.length > 0 ? (
+              activeRegions.map((r) => (
                 <button
-                  key={w._id}
-                  onClick={() => handleSelect(w._id)}
+                  key={r.countryCode}
+                  onClick={() => handleSelect(r.countryCode)}
                   className="w-full flex items-center gap-4 p-4 border border-border rounded-lg hover:border-accent/50 hover:bg-accent/5 transition-all group"
                 >
-                  <span className="text-2xl">{getFlagEmoji(w.countryCode || 'GB')}</span>
+                  <span className="text-2xl">{getFlagEmoji(r.countryCode || 'GB')}</span>
                   <div className="flex-1 text-left">
                     <p className="text-sm font-medium text-foreground group-hover:text-accent transition-colors">
-                      {w.country || w.name}
+                      {r.countryName}
                     </p>
                     <p className="text-xs text-muted-foreground font-mono">
-                      {w.currency}
+                      {r.currency}
                     </p>
                   </div>
                   <ChevronDown className="w-4 h-4 text-muted-foreground -rotate-90" />
                 </button>
               ))
             ) : (
-              <div className="text-center text-sm text-muted-foreground p-4">Loading regions...</div>
+              <div className="text-center p-4 text-muted-foreground text-sm border border-border border-dashed rounded-lg">
+                No regions available.
+              </div>
             )}
           </div>
         </motion.div>
@@ -112,14 +102,13 @@ export function LocationModal() {
  * Shows current country flag + currency, click to change.
  */
 export function LocationIndicator() {
-  const { warehouseId, currency, isLoading, setManualWarehouse, canPurchase, isThirdCountry, activeWarehouses } = useLocation();
+  const { countryCode, currency, isLoading, setManualRegion, activeRegions, canPurchase, isThirdCountry } = useLocation();
   const [isOpen, setIsOpen] = useState(false);
 
-  const selectedWarehouse = activeWarehouses?.find(w => w._id === warehouseId);
-  const flag = getFlagEmoji(selectedWarehouse?.countryCode || "GB");
+  const flag = getFlagEmoji(countryCode || 'GB');
 
-  const handleSelect = async (id) => {
-    await setManualWarehouse(id);
+  const handleSelect = async (code) => {
+    await setManualRegion(code);
     setIsOpen(false);
   };
 
@@ -158,24 +147,29 @@ export function LocationIndicator() {
                 Shopping Region
               </p>
               <div className="space-y-1 max-h-[300px] overflow-y-auto">
-                {activeWarehouses?.length > 0 ? (
-                  activeWarehouses.map((w) => (
+                {activeRegions?.length > 0 ? (
+                  activeRegions.map((r) => (
                     <button
-                      key={w._id}
-                      onClick={() => handleSelect(w._id)}
+                      key={r.countryCode}
+                      onClick={() => handleSelect(r.countryCode)}
                       className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
-                        warehouseId === w._id 
+                        countryCode === r.countryCode 
                           ? "bg-accent/10 text-accent" 
                           : "hover:bg-muted text-foreground"
                       }`}
                     >
-                      <span className="text-lg">{getFlagEmoji(w.countryCode)}</span>
-                      <span className="text-sm flex-1 text-left">{w.country || w.name}</span>
-                      {warehouseId === w._id && <Check className="w-4 h-4" />}
+                      <span className="text-xl leading-none">{getFlagEmoji(r.countryCode || 'GB')}</span>
+                      <div className="flex-1 text-left">
+                        <p className="text-sm font-medium">{r.countryName}</p>
+                        <p className="text-[10px] font-mono opacity-70">{r.currency}</p>
+                      </div>
+                      {countryCode === r.countryCode && <Check className="w-4 h-4" />}
                     </button>
                   ))
                 ) : (
-                  <div className="text-center text-xs text-muted-foreground py-2">Loading...</div>
+                  <div className="text-center p-3 text-muted-foreground text-xs">
+                    No regions available.
+                  </div>
                 )}
               </div>
 

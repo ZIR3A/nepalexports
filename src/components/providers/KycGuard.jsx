@@ -12,23 +12,15 @@ export function KycGuard({ children }) {
   useEffect(() => {
     if (status === "loading") return;
 
-    const isPending = session?.user?.kycStatus === "PENDING";
-    const allowedPaths = ["/onboarding", "/privacy-policy"];
-    
-    // We only force redirect if they are not already on an allowed page
-    if (isPending && !allowedPaths.includes(pathname)) {
-      router.push("/onboarding");
-    }
+    // The interceptor has been disabled so users can browse freely
+    // KYC will be enforced during the checkout flow instead
   }, [session, status, pathname, router]);
 
   // Optionally, show nothing or a loader while deciding
   if (status === "loading") return null;
   
-  const allowedPaths = ["/onboarding", "/privacy-policy"];
-  if (session?.user?.kycStatus === "PENDING" && !allowedPaths.includes(pathname)) {
-    // Return null to prevent a flash of the protected page before redirect happens
-    return null; 
-  }
+  // The user is allowed to proceed regardless of KYC status
+  // KYC validation is strictly handled at checkout
 
   return <>{children}</>;
 }

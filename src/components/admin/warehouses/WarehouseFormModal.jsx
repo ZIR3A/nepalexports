@@ -20,6 +20,16 @@ export default function WarehouseFormModal({ isOpen, onClose, initialData, onSuc
   const [managerOptions, setManagerOptions] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [regions, setRegions] = useState([]);
+
+  useEffect(() => {
+    fetch("/api/regions?admin=true")
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setRegions(data);
+      })
+      .catch(console.error);
+  }, []);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -137,26 +147,35 @@ export default function WarehouseFormModal({ isOpen, onClose, initialData, onSuc
               <Input required value={formData.code} onChange={e => setFormData({...formData, code: e.target.value.toUpperCase()})} placeholder="e.g. KTM-01" />
             </div>
             
-            <div className="space-y-2">
-              <Label>Country</Label>
-              <Input required value={formData.country} onChange={e => setFormData({...formData, country: e.target.value})} placeholder="e.g. Nepal" />
-            </div>
-            <div className="space-y-2">
-              <Label>Country Code (ISO 2)</Label>
-              <Input required value={formData.countryCode} onChange={e => setFormData({...formData, countryCode: e.target.value.toUpperCase()})} placeholder="e.g. NP" maxLength={2} />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Operating Currency</Label>
-              <Select value={formData.currency} onValueChange={v => setFormData({...formData, currency: v})}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+            <div className="space-y-2 col-span-2">
+              <Label>Region Configuration</Label>
+              <Select 
+                value={formData.countryCode} 
+                onValueChange={v => {
+                  const selectedRegion = regions.find(r => r.countryCode === v);
+                  if (selectedRegion) {
+                    setFormData({
+                      ...formData, 
+                      countryCode: selectedRegion.countryCode,
+                      country: selectedRegion.countryName,
+                      currency: selectedRegion.currency
+                    });
+                  }
+                }}
+              >
+                <SelectTrigger><SelectValue placeholder="Select a Region" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="NPR">NPR</SelectItem>
-                  <SelectItem value="GBP">GBP</SelectItem>
-                  <SelectItem value="USD">USD</SelectItem>
-                  <SelectItem value="EUR">EUR</SelectItem>
+                  {regions.map(r => (
+                    <SelectItem key={r.countryCode} value={r.countryCode}>
+                      {r.countryName} ({r.currency})
+                    </SelectItem>
+                  ))}
+                  {!regions.find(r => r.countryCode === formData.countryCode) && formData.countryCode && (
+                    <SelectItem value={formData.countryCode}>{formData.country} ({formData.countryCode}) - Legacy</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground mt-1">Country and Currency are automatically set by the selected Region.</p>
             </div>
             
             <div className="space-y-2 relative">

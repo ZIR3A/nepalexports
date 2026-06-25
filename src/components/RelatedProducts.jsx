@@ -16,17 +16,17 @@ export default function RelatedProducts({
   const [recommendations, setRecommendations] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  const { warehouseId, currencySymbol, canPurchase, formatPrice, userCountry } = useAppContext();
+  const { currencySymbol, canPurchase, formatPrice, userCountry } = useAppContext();
 
   useEffect(() => {
-    if (!product || !warehouseId) return;
+    if (!product || !userCountry) return;
 
     const fetchRecommendations = async () => {
       try {
         setIsLoading(true);
         const params = new URLSearchParams({
           productId: product.id || product._id,
-          warehouseId: warehouseId
+          countryCode: userCountry
         });
         
         if (product.category) {
@@ -65,7 +65,7 @@ export default function RelatedProducts({
     };
 
     fetchRecommendations();
-  }, [product, warehouseId]);
+  }, [product, userCountry]);
 
   if (isLoading || recommendations.length === 0) {
     // Optionally return a skeleton here, but returning null for simplicity if empty

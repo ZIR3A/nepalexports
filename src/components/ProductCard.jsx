@@ -27,8 +27,14 @@ export default function ProductCard({ product, onView, onAddToCart, onWishlist, 
           alt={product.name}
           className={`w-full h-full object-cover transition-all duration-700 ${isUnavailable ? "grayscale" : ""}`}
         />
-        {product.badge && (
-          <div className="absolute top-3 left-3">
+        {product.fulfillmentStatus === 'AVAILABLE_VIA_IMPORT' ? (
+          <div className="absolute top-3 left-3 z-10">
+            <Badge className="bg-amber-500/90 hover:bg-amber-600 text-white border border-amber-600/50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+              Available via Import
+            </Badge>
+          </div>
+        ) : product.badge && (
+          <div className="absolute top-3 left-3 z-10">
             <Badge
               variant={
                 product.badge === "SALE" ? "sale" :

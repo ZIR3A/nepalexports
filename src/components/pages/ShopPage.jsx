@@ -7,7 +7,7 @@ import StarRating from "../StarRating";
 
 import { getPriceForRegion } from "@/lib/pricingUtils";
 
-export default function ShopPage({ setPage, cart, setCart, wishlist, toggleWishlist, warehouseId, currency, currencySymbol, formatPrice, canPurchase, isThirdCountry, userCountry }) {
+export default function ShopPage({ setPage, cart, setCart, wishlist, toggleWishlist, userCountry, currency, currencySymbol, formatPrice, canPurchase, isThirdCountry }) {
   const [viewMode, setViewMode] = useState("grid");
   const [sort, setSort] = useState("featured");
   const [priceRange, setPriceRange] = useState([0, currency === "NPR" ? 50000 : 200]);
@@ -27,10 +27,10 @@ export default function ShopPage({ setPage, cart, setCart, wishlist, toggleWishl
     const fetchProducts = async () => {
       try {
         setIsLoading(true);
-        // Build URL with warehouse filter
+        // Build URL with region filter
         let url = '/api/products';
         const params = new URLSearchParams();
-        if (warehouseId) params.set('warehouseId', warehouseId);
+        if (userCountry) params.set('countryCode', userCountry);
         if (params.toString()) url += `?${params.toString()}`;
 
         const res = await fetch(url);
@@ -57,6 +57,9 @@ export default function ShopPage({ setPage, cart, setCart, wishlist, toggleWishl
             badge: null,
             isUnavailable: p.isUnavailable || false,
             localStock: p.localStock || 0,
+            allowImport: p.allowImport || false,
+            importSurcharge: p.importSurcharge || 0,
+            fulfillmentStatus: p.fulfillmentStatus || 'IN_STOCK'
           };
         });
         
@@ -68,14 +71,19 @@ export default function ShopPage({ setPage, cart, setCart, wishlist, toggleWishl
       }
     };
     
-    if (warehouseId) {
-      fetchProducts();
-    }
-  }, [warehouseId, currency]);
+    fetchProducts();
+  }, [userCountry, currency]);
 
   const addToCart = (product) => {
     if (!canPurchase || product.isUnavailable) return;
-    setCart([...cart, { ...product, quantity: 1, selectedColor: product.colors[0], selectedSize: "M" }]);
+    setCart([...cart, { 
+      ...product, 
+      quantity: 1, 
+      selectedColor: product.colors[0], 
+      selectedSize: "M",
+      fulfillmentStatus: product.fulfillmentStatus,
+      importSurcharge: product.fulfillmentStatus === 'AVAILABLE_VIA_IMPORT' ? product.importSurcharge : 0
+    }]);
   };
 
   const sizes = ["XS", "S", "M", "L", "XL", "XXL"];

@@ -1,7 +1,11 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { ArrowRight, CheckCircle, Truck, AlertCircle, Loader2 } from "lucide-react";
+import { ArrowRight, CheckCircle, Truck, AlertCircle, Loader2, MapPin } from "lucide-react";
 import { Button } from "../ui/button";
+import { useSession } from "next-auth/react";
+import { useAppContext } from "@/context/AppContext";
+import PhoneInput from 'react-phone-number-input';
+import 'react-phone-number-input/style.css';
 
 function InputField({ label, value, onChange, placeholder, type = "text" }) {
   return (
@@ -19,14 +23,37 @@ function InputField({ label, value, onChange, placeholder, type = "text" }) {
 }
 
 export default function CheckoutPage({ setPage, cart, setCart }) {
-  const [step, setStep] = useState(1);
-  const [email, setEmail] = useState("");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [address, setAddress] = useState("");
-  const [city, setCity] = useState("");
-  const [country, setCountry] = useState("GB");
+  const { data: session, update } = useSession();
+  const { userCountry } = useAppContext();
+  const isKycPending = session?.user?.kycStatus === "PENDING";
+
+  // State A: Start at step 1 for KYC, State B: Skip Contact Info if Completed (maybe start at Shipping or Payment)
+  // We'll keep standard steps but inject KYC fields into Information/Shipping if pending
+  const [step, setStep] = useState(isKycPending ? 1 : 2);
+  
+  const [email, setEmail] = useState(session?.user?.email || "");
+  const [firstName, setFirstName] = useState(session?.user?.firstName || "");
+  const [lastName, setLastName] = useState(session?.user?.lastName || "");
+  const [address, setAddress] = useState(session?.user?.address?.street || "");
+  const [city, setCity] = useState(session?.user?.address?.city || "");
+  const [country, setCountry] = useState(session?.user?.address?.country || userCountry || "GB");
   const [payment, setPayment] = useState("card");
+
+  // KYC specific state
+  const [phone, setPhone] = useState(session?.user?.phoneNumber || "");
+  const [coordinates, setCoordinates] = useState({ lat: null, lng: null });
+  const [isLocating, setIsLocating] = useState(false);
+
+  // Dynamic Regions
+  const [regions, setRegions] = useState([]);
+
+  // Fetch Regions
+  useEffect(() => {
+    fetch('/api/regions')
+      .then(res => res.json())
+      .then(data => setRegions(Array.isArray(data) ? data : []))
+      .catch(err => console.error("Failed to fetch regions", err));
+  }, []);
 
   // Dynamic Validation State
   const [validationData, setValidationData] = useState(null);
@@ -66,11 +93,26 @@ export default function CheckoutPage({ setPage, cart, setCart }) {
   const handleCheckout = async () => {
     if (!validationData) return;
     setIsSubmitting(true);
+    
+    // Prepare kycData if pending
+    const kycData = isKycPending ? {
+      phone,
+      coordinates,
+      firstName,
+      lastName,
+      address: {
+        street: address,
+        city,
+        country
+      }
+    } : null;
+
     try {
       const res = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          kycData,
           items: validationData.items,
           customerDetails: { email, firstName, lastName },
           shippingAddress: { address, city, country },
@@ -79,10 +121,11 @@ export default function CheckoutPage({ setPage, cart, setCart }) {
             subtotal: validationData.subtotal,
             shippingCost: validationData.shippingCost,
             taxAmount: validationData.taxAmount,
+            importFees: validationData.importFees || 0,
             total: validationData.total
           },
           paymentMethod: payment,
-          warehouseId: validationData.warehouseId
+          warehouses: validationData.warehouseIds || [validationData.warehouseId].filter(Boolean)
         })
       });
       const data = await res.json();
@@ -90,6 +133,9 @@ export default function CheckoutPage({ setPage, cart, setCart }) {
       
       setOrderId(data.orderNumber);
       setCart([]); // Clear cart
+      if (isKycPending) {
+        await update(); // Update session to reflect COMPLETED kycStatus
+      }
       setStep(4);
     } catch (err) {
       setValidationError(err.message);
@@ -98,9 +144,25 @@ export default function CheckoutPage({ setPage, cart, setCart }) {
     }
   };
 
+  const handleFetchCoordinates = () => {
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCoordinates({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setIsLocating(false);
+      },
+      (err) => {
+        alert("Failed to fetch coordinates. Please enable location services.");
+        setIsLocating(false);
+      }
+    );
+  };
+
   const formatMoney = (amount) => {
     if (!validationData) return `£${amount.toFixed(2)}`;
-    return validationData.currency === "NPR" ? `रु${amount.toFixed(0)}` : `£${amount.toFixed(2)}`;
+    const cur = validationData.currency;
+    const symbol = cur === "NPR" ? "रु" : cur === "USD" ? "$" : cur === "EUR" ? "€" : "£";
+    return cur === "NPR" ? `${symbol}${amount.toFixed(0)}` : `${symbol}${amount.toFixed(2)}`;
   };
 
   if (step === 4) {
@@ -187,6 +249,37 @@ export default function CheckoutPage({ setPage, cart, setCart }) {
                       <InputField label="First Name" value={firstName} onChange={setFirstName} placeholder="John" />
                       <InputField label="Last Name" value={lastName} onChange={setLastName} placeholder="Doe" />
                     </div>
+                    {isKycPending && (
+                      <div className="mt-4 p-4 border border-amber-500/30 bg-amber-500/5 rounded-md">
+                        <h4 className="text-sm font-medium mb-4 text-amber-600">Action Required: KYC Verification</h4>
+                        <div className="space-y-4">
+                          <div>
+                            <label className="font-mono text-[10px] tracking-[0.12em] uppercase text-muted-foreground block mb-2">Verified Phone Number</label>
+                            <PhoneInput
+                              international
+                              defaultCountry="GB"
+                              value={phone}
+                              onChange={setPhone}
+                              className="w-full bg-muted border border-border px-4 py-3 text-sm text-foreground outline-none focus-within:border-accent/50 transition-colors"
+                            />
+                          </div>
+                          <div>
+                            <label className="font-mono text-[10px] tracking-[0.12em] uppercase text-muted-foreground block mb-2">Exact Delivery Coordinates</label>
+                            <div className="flex gap-2">
+                              <InputField 
+                                label="" 
+                                value={coordinates.lat && coordinates.lng ? `${coordinates.lat.toFixed(6)}, ${coordinates.lng.toFixed(6)}` : ""} 
+                                onChange={() => {}} 
+                                placeholder="Click to fetch coordinates ->" 
+                              />
+                              <Button type="button" variant="outline" onClick={handleFetchCoordinates} disabled={isLocating}>
+                                {isLocating ? <Loader2 className="animate-spin" size={16} /> : <MapPin size={16} />}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               )}
@@ -206,11 +299,17 @@ export default function CheckoutPage({ setPage, cart, setCart }) {
                         onChange={e => setCountry(e.target.value)}
                         className="w-full bg-muted border border-border px-4 py-3 text-sm text-foreground outline-none"
                       >
-                        <option value="GB">United Kingdom</option>
-                        <option value="NP">Nepal</option>
-                        <option value="US">United States</option>
-                        <option value="EU">European Union</option>
+                        {regions.map(r => (
+                          <option key={r.countryCode} value={r.countryCode}>{r.countryName}</option>
+                        ))}
+                        {regions.length === 0 && <option value="GB">United Kingdom</option>}
                       </select>
+                      {country !== userCountry && userCountry && (
+                        <div className="mt-2 p-3 border border-amber-500/50 bg-amber-500/10 text-amber-600 text-xs flex items-center gap-2">
+                          <AlertCircle size={14} />
+                          Notice: Your selected shipping country ({country}) differs from your physical region ({userCountry}). 
+                        </div>
+                      )}
                     </div>
                     {isValidating && (
                       <div className="flex items-center gap-2 text-sm text-muted-foreground pt-4">
@@ -298,24 +397,80 @@ export default function CheckoutPage({ setPage, cart, setCart }) {
           <div className="lg:col-span-2">
             <div className="bg-card border border-border p-6 sticky top-24">
               <h3 className="font-mono text-[10px] tracking-[0.15em] uppercase text-muted-foreground mb-4">Order Summary</h3>
-              <div className="space-y-3">
-                {(validationData ? validationData.items : cart).map((item, i) => (
-                  <div key={i} className="flex gap-3">
-                    <div className="relative">
-                      <img src={item.image} alt={item.name} className="w-14 object-cover bg-muted" style={{ height: "4.5rem" }} />
-                      <span className="absolute -top-1 -right-1 w-5 h-5 bg-muted-foreground text-background font-mono text-[9px] flex items-center justify-center">
-                        {item.quantity}
-                      </span>
-                    </div>
-                    <div className="flex-1 flex justify-between items-start">
-                      <div>
-                        <p className="text-xs font-medium text-foreground">{item.name}</p>
-                        <p className="font-mono text-[10px] text-muted-foreground">{item.selectedSize}</p>
-                      </div>
-                      <span className="font-mono text-sm text-foreground">{formatMoney(item.price * item.quantity)}</span>
-                    </div>
-                  </div>
-                ))}
+              <div className="space-y-6">
+                {/* Local Items */}
+                {(() => {
+                  const itemsToRender = validationData ? validationData.items : cart;
+                  const localItems = itemsToRender.filter(i => i.fulfillmentStatus !== 'AVAILABLE_VIA_IMPORT');
+                  const importItems = itemsToRender.filter(i => i.fulfillmentStatus === 'AVAILABLE_VIA_IMPORT');
+
+                  return (
+                    <>
+                      {localItems.length > 0 && (
+                        <div className="space-y-3">
+                          <h4 className="text-xs font-medium text-foreground mb-2 flex items-center gap-2">
+                            <Truck size={14} className="text-emerald-600" /> Local Delivery
+                          </h4>
+                          {localItems.map((item, i) => (
+                            <div key={`local-${i}`} className="flex gap-3">
+                              <div className="relative shrink-0">
+                                {item.image || (item.images && item.images[0]) ? (
+                                  <img src={item.image || item.images[0]} alt={item.name} className="w-14 object-cover bg-muted" style={{ height: "4.5rem" }} />
+                                ) : (
+                                  <div className="w-14 bg-muted flex items-center justify-center border border-border" style={{ height: "4.5rem" }}>
+                                    <span className="font-mono text-[8px] text-muted-foreground uppercase text-center break-words px-1">Drape</span>
+                                  </div>
+                                )}
+                                <span className="absolute -top-1 -right-1 w-5 h-5 bg-muted-foreground text-background font-mono text-[9px] flex items-center justify-center">
+                                  {item.quantity}
+                                </span>
+                              </div>
+                              <div className="flex-1 flex justify-between items-start">
+                                <div>
+                                  <p className="text-xs font-medium text-foreground">{item.name}</p>
+                                  <p className="font-mono text-[10px] text-muted-foreground">{item.selectedSize}</p>
+                                </div>
+                                <span className="font-mono text-sm text-foreground">{formatMoney(item.price * item.quantity)}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Import Items */}
+                      {importItems.length > 0 && (
+                        <div className="space-y-3 pt-3 border-t border-border">
+                          <h4 className="text-xs font-medium text-amber-600/90 mb-2 flex items-center gap-2">
+                            <AlertCircle size={14} /> Cross-Border Import
+                          </h4>
+                          {importItems.map((item, i) => (
+                            <div key={`import-${i}`} className="flex gap-3 opacity-90">
+                              <div className="relative shrink-0">
+                                {item.image || (item.images && item.images[0]) ? (
+                                  <img src={item.image || item.images[0]} alt={item.name} className="w-14 object-cover bg-muted" style={{ height: "4.5rem" }} />
+                                ) : (
+                                  <div className="w-14 bg-muted flex items-center justify-center border border-border" style={{ height: "4.5rem" }}>
+                                    <span className="font-mono text-[8px] text-muted-foreground uppercase text-center break-words px-1">Drape</span>
+                                  </div>
+                                )}
+                                <span className="absolute -top-1 -right-1 w-5 h-5 bg-amber-600/90 text-background font-mono text-[9px] flex items-center justify-center">
+                                  {item.quantity}
+                                </span>
+                              </div>
+                              <div className="flex-1 flex justify-between items-start">
+                                <div>
+                                  <p className="text-xs font-medium text-foreground">{item.name}</p>
+                                  <p className="font-mono text-[10px] text-muted-foreground">{item.selectedSize}</p>
+                                </div>
+                                <span className="font-mono text-sm text-foreground">{formatMoney(item.price * item.quantity)}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
               <div className="border-t border-border mt-4 pt-4 space-y-2 text-sm">
                 <div className="flex justify-between">
@@ -327,9 +482,15 @@ export default function CheckoutPage({ setPage, cart, setCart }) {
                   <span className="font-mono">{validationData ? formatMoney(validationData.shippingCost) : "—"}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Tax</span>
+                  <span className="text-muted-foreground">Tax {validationData && validationData.taxRate > 0 ? `(${validationData.taxRate}%)` : ""}</span>
                   <span className="font-mono">{validationData ? formatMoney(validationData.taxAmount) : "—"}</span>
                 </div>
+                {validationData?.importFees > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-amber-600/90 font-medium text-xs self-center">Import Surcharge</span>
+                    <span className="font-mono text-amber-600/90">{formatMoney(validationData.importFees)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between font-medium text-base border-t border-border pt-2 mt-2">
                   <span>Total</span>
                   <span className="font-mono text-accent">{validationData ? formatMoney(validationData.total) : "—"}</span>

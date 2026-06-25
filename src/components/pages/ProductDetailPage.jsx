@@ -12,11 +12,13 @@ import { getPriceForRegion } from "@/lib/pricingUtils";
 export default function ProductDetailPage({ setPage, cart, setCart, wishlist, toggleWishlist }) {
   const params = useParams();
   const id = params?.id;
-  const { userCountry, locationLoading, warehouseId } = useAppContext();
+  const { userCountry, locationLoading, formatPrice } = useAppContext();
 
   const [product, setProduct] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isRestricted, setIsRestricted] = useState(false);
+  const [restrictionMessage, setRestrictionMessage] = useState("");
 
   const [selectedImage, setSelectedImage] = useState(0);
   const [selectedSize, setSelectedSize] = useState("M");
@@ -33,12 +35,19 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
         setIsLoading(true);
         setError(null);
         let url = `/api/products/${id}`;
-        if (warehouseId) {
-          url += `?warehouseId=${warehouseId}`;
+        if (userCountry) {
+          url += `?countryCode=${userCountry}`;
         }
         const res = await fetch(url);
         
         if (!res.ok) {
+          if (res.status === 403) {
+            const errData = await res.json();
+            setIsRestricted(true);
+            setRestrictionMessage(errData.error || "This product is currently not available in your region due to local restrictions.");
+            setIsLoading(false);
+            return;
+          }
           let errMsg = "Failed to fetch product details";
           try {
             const errData = await res.json();
@@ -49,9 +58,10 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
         
         const data = await res.json();
         
-        // Extract sizes and colors from new variants attributes map
-        const colors = [...new Set(data.variants.map(v => v.attributes?.color).filter(c => c && c !== "N/A"))];
-        const sizes = [...new Set(data.variants.map(v => v.attributes?.size).filter(s => s && s !== "N/A"))];
+        const isFood = (data.mainCategory?.productType || data.category || '').toLowerCase() === 'food';
+        
+        const colors = [...new Set(data.variants.map(v => isFood ? v.attributes?.flavor : v.attributes?.color).filter(c => c && c !== "N/A"))];
+        const sizes = [...new Set(data.variants.map(v => isFood ? (v.attributes?.weight || v.attributes?.packSize) : v.attributes?.size).filter(s => s && s !== "N/A"))];
         
         const pricing = getPriceForRegion(data, userCountry);
         const displayPrice = pricing.salePrice || pricing.basePrice;
@@ -77,7 +87,10 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
           logisticsAttributes: data.logisticsAttributes || null,
           inventoryMap: data.inventoryMap || {},
           variantsData: data.variants || [],
-          pricing: data.pricing || []
+          pricing: data.pricing || [],
+          isUnavailable: data.isUnavailable || false,
+          allowImport: data.allowImport || false,
+          importSurcharge: data.importSurcharge || 0
         };
         
         setProduct(mappedProduct);
@@ -91,11 +104,25 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
     };
     
     fetchProduct();
-  }, [id, warehouseId, userCountry]);
+  }, [id, userCountry]);
 
   const addToCart = () => {
     if (!product) return;
-    setCart([...cart, { ...product, quantity, selectedColor, selectedSize }]);
+    
+    const selectedVariant = product.variantsData?.find(v => v.attributes?.color === selectedColor && v.attributes?.size === selectedSize);
+    const invData = selectedVariant && product.inventoryMap[selectedVariant._id] ? product.inventoryMap[selectedVariant._id] : { total: 0, byCountry: {} };
+    const localStock = invData.byCountry[userCountry] || 0;
+    const totalOtherStock = invData.total - localStock;
+    const isImport = localStock === 0 && totalOtherStock > 0 && product.allowImport;
+    
+    setCart([...cart, { 
+      ...product, 
+      quantity, 
+      selectedColor, 
+      selectedSize,
+      fulfillmentStatus: isImport ? 'AVAILABLE_VIA_IMPORT' : 'IN_STOCK',
+      importSurcharge: isImport ? product.importSurcharge : 0
+    }]);
     setAdded(true);
     setTimeout(() => setAdded(false), 2000);
   };
@@ -104,6 +131,21 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
     return (
       <div className="pt-[72px] min-h-screen flex items-center justify-center">
         <Loader2 className="animate-spin text-muted-foreground" size={48} />
+      </div>
+    );
+  }
+
+  if (isRestricted) {
+    return (
+      <div className="pt-[72px] min-h-screen flex items-center justify-center">
+        <div className="text-center max-w-md px-6">
+          <div className="w-16 h-16 bg-red-500/10 text-red-500 flex items-center justify-center rounded-full mx-auto mb-6">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+          </div>
+          <h2 className="text-2xl font-display font-light mb-4">Region Restricted</h2>
+          <p className="text-muted-foreground mb-8 leading-relaxed">{restrictionMessage}</p>
+          <Button onClick={() => setPage("shop")} className="w-full h-12 text-sm uppercase tracking-wider">Return to Shop</Button>
+        </div>
       </div>
     );
   }
@@ -120,18 +162,7 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
     );
   }
 
-  const hasRegionalPricing = product.pricing && product.pricing.some(pr => pr.country === userCountry && pr.isActive);
-  if (!hasRegionalPricing) {
-    return (
-      <div className="pt-[72px] min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-2xl font-light mb-4">Not Available</h2>
-          <p className="text-muted-foreground mb-6">This product is not currently available for shipping to your region.</p>
-          <Button onClick={() => setPage("shop")}>Continue Shopping</Button>
-        </div>
-      </div>
-    );
-  }
+
 
   // Ensure we have images
   const images = product.images?.length > 0 ? product.images : [
@@ -196,27 +227,53 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
             <h1 className="font-display text-4xl font-light mb-3">{product.name}</h1>
             <StarRating rating={product.rating} count={product.reviews} />
 
-            <div className="flex items-center gap-4 mt-4 pb-4 border-b border-border mb-6">
-              {product.salePrice && product.salePrice < product.basePrice ? (
-                <>
+            <div className="flex flex-col gap-1 mt-4 pb-4 border-b border-border mb-6">
+              <div className="flex items-center gap-4">
+                {product.salePrice && product.salePrice < product.basePrice ? (
+                  <>
+                    <span className="font-mono text-3xl font-medium text-foreground">
+                      {formatPrice(product.salePrice)}
+                    </span>
+                    <span className="font-mono text-xl text-muted-foreground line-through">
+                      {formatPrice(product.basePrice)}
+                    </span>
+                    <span className="bg-red-500/10 text-red-600 px-2 py-1 rounded text-xs font-bold uppercase tracking-wider">
+                      Sale
+                    </span>
+                  </>
+                ) : (
                   <span className="font-mono text-3xl font-medium text-foreground">
-                    {product.currency === 'GBP' ? '£' : product.currency === 'NPR' ? 'रु' : product.currency}
-                    {product.salePrice}
+                    {formatPrice(product.basePrice)}
                   </span>
-                  <span className="font-mono text-xl text-muted-foreground line-through">
-                    {product.currency === 'GBP' ? '£' : product.currency === 'NPR' ? 'रु' : product.currency}
-                    {product.basePrice}
-                  </span>
-                  <span className="bg-red-500/10 text-red-600 px-2 py-1 rounded text-xs font-bold uppercase tracking-wider">
-                    Sale
-                  </span>
-                </>
-              ) : (
-                <span className="font-mono text-3xl font-medium text-foreground">
-                  {product.currency === 'GBP' ? '£' : product.currency === 'NPR' ? 'रु' : product.currency}
-                  {product.basePrice}
-                </span>
-              )}
+                )}
+              </div>
+              
+              {(() => {
+                const selectedVariant = product.variantsData?.find(v => {
+                  if (product.productType === 'food') {
+                    const matchFlavor = v.attributes?.flavor === selectedColor || !v.attributes?.flavor;
+                    const matchWeight = v.attributes?.weight === selectedSize || v.attributes?.packSize === selectedSize || !v.attributes?.weight;
+                    return matchFlavor && matchWeight;
+                  }
+                  return v.attributes?.color === selectedColor && v.attributes?.size === selectedSize;
+                }) || product.variantsData?.[0];
+                const invData = selectedVariant && product.inventoryMap[selectedVariant._id] ? product.inventoryMap[selectedVariant._id] : { total: 0, byCountry: {} };
+                const localStock = invData.byCountry[userCountry] || 0;
+                const totalOtherStock = invData.total - localStock;
+                const isImport = localStock === 0 && totalOtherStock > 0 && product.allowImport;
+                
+                if (isImport && product.importSurcharge > 0) {
+                  const base = product.salePrice && product.salePrice < product.basePrice ? product.salePrice : product.basePrice;
+                  const total = base + product.importSurcharge;
+                  return (
+                    <div className="mt-2 text-sm text-muted-foreground flex flex-col">
+                      <span className="font-mono">+ {formatPrice(product.importSurcharge)} Import Surcharge</span>
+                      <span className="font-mono font-medium text-foreground mt-1">Total: {formatPrice(total)}</span>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
             </div>
 
             {/* Dietary Tags */}
@@ -231,14 +288,35 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
             )}
 
             {/* Smart Availability Logic */}
-            <div className="pb-6 border-b border-border">
+            <div className="pb-6 border-b border-border space-y-3">
               {(() => {
                 // Find selected variant inventory
-                const selectedVariant = product.variantsData?.find(v => v.attributes?.color === selectedColor && v.attributes?.size === selectedSize);
-                const invData = selectedVariant && product.inventoryMap[selectedVariant._id] ? product.inventoryMap[selectedVariant._id] : { total: 0, byCountry: { NP: 0, GB: 0, Transit: 0 } };
+                const selectedVariant = product.variantsData?.find(v => {
+                  if (product.productType === 'food') {
+                    const matchFlavor = v.attributes?.flavor === selectedColor || !v.attributes?.flavor;
+                    const matchWeight = v.attributes?.weight === selectedSize || v.attributes?.packSize === selectedSize || !v.attributes?.weight;
+                    return matchFlavor && matchWeight;
+                  }
+                  return v.attributes?.color === selectedColor && v.attributes?.size === selectedSize;
+                }) || product.variantsData?.[0];
                 
-                const localStock = invData.byCountry[userCountry] || 0;
-                const totalOtherStock = invData.total - localStock;
+                let invData;
+                if (selectedVariant && product.inventoryMap[selectedVariant._id]) {
+                  invData = product.inventoryMap[selectedVariant._id];
+                } else if (!product.variantsData || product.variantsData.length === 0) {
+                  // Standard product without variants, fallback to the only key in inventoryMap or use totals
+                  const keys = Object.keys(product.inventoryMap);
+                  if (keys.length > 0) {
+                    invData = product.inventoryMap[keys[0]];
+                  } else {
+                    invData = { total: product.totalStock || 0, byCountry: { [userCountry]: product.localWarehouseStock || 0 } };
+                  }
+                } else {
+                  invData = { total: 0, byCountry: {} };
+                }
+                
+                const localStock = invData.byCountry?.[userCountry] || product.localWarehouseStock || 0;
+                const totalOtherStock = (invData.total || product.totalStock || 0) - localStock;
 
                 if (localStock > 0) {
                   return (
@@ -247,12 +325,17 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
                       <span className="font-mono text-[11px] uppercase tracking-wider">In Stock • Fast Delivery (2-3 Days)</span>
                     </div>
                   );
-                } else if (totalOtherStock > 0) {
+                } else if (totalOtherStock > 0 && product.allowImport) {
                   return (
-                    <div className="flex items-center gap-2 text-amber-600 bg-amber-500/10 w-fit px-3 py-1.5 rounded-sm">
-                      <Truck size={14} />
-                      <span className="font-mono text-[11px] uppercase tracking-wider">Available via Import • Est. 10-14 Days</span>
-                    </div>
+                    <>
+                      <div className="flex items-center gap-2 text-amber-600 bg-amber-500/10 w-fit px-3 py-1.5 rounded-sm border border-amber-500/20 shadow-sm">
+                        <Truck size={14} />
+                        <span className="font-mono text-[11px] uppercase tracking-wider font-semibold">Available via Import</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground max-w-sm">
+                        Ships directly from our international hub. Please allow 10-14 days for cross-border fulfillment.
+                      </p>
+                    </>
                   );
                 } else {
                   return (
@@ -409,14 +492,38 @@ export default function ProductDetailPage({ setPage, cart, setCart, wishlist, to
             {/* Actions */}
             <div className="flex gap-3 mt-8">
               {(() => {
-                const selectedVariant = product.variantsData?.find(v => v.attributes?.color === selectedColor && v.attributes?.size === selectedSize);
-                const invData = selectedVariant && product.inventoryMap[selectedVariant._id] ? product.inventoryMap[selectedVariant._id] : { total: 0 };
-                const outOfStock = invData.total === 0;
+                const selectedVariant = product.variantsData?.find(v => {
+                  if (product.productType === 'food') {
+                    const matchFlavor = v.attributes?.flavor === selectedColor || !v.attributes?.flavor;
+                    const matchWeight = v.attributes?.weight === selectedSize || v.attributes?.packSize === selectedSize || !v.attributes?.weight;
+                    return matchFlavor && matchWeight;
+                  }
+                  return v.attributes?.color === selectedColor && v.attributes?.size === selectedSize;
+                }) || product.variantsData?.[0];
+                
+                let invData;
+                if (selectedVariant && product.inventoryMap[selectedVariant._id]) {
+                  invData = product.inventoryMap[selectedVariant._id];
+                } else if (!product.variantsData || product.variantsData.length === 0) {
+                  // Standard product without variants, fallback to the only key in inventoryMap or use totals
+                  const keys = Object.keys(product.inventoryMap);
+                  if (keys.length > 0) {
+                    invData = product.inventoryMap[keys[0]];
+                  } else {
+                    invData = { total: product.totalStock || 0, byCountry: { [userCountry]: product.localWarehouseStock || 0 } };
+                  }
+                } else {
+                  invData = { total: 0, byCountry: {} };
+                }
+                
+                const localStock = invData.byCountry?.[userCountry] || product.localWarehouseStock || 0;
+                const totalOtherStock = (invData.total || product.totalStock || 0) - localStock;
+                const outOfStock = localStock === 0 && !(totalOtherStock > 0 && product.allowImport);
 
                 if (outOfStock) {
                   return (
-                    <Button variant="outline" className="flex-1 py-6 border-foreground/30 text-foreground" onClick={() => alert("We'll notify you when it's back!")}>
-                      Notify Me
+                    <Button variant="outline" className="flex-1 py-6 border-foreground/30 text-foreground cursor-not-allowed opacity-60" onClick={() => {}}>
+                      Out of Stock in Your Region
                     </Button>
                   );
                 }

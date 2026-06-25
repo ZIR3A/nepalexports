@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/backend/config/db';
-import Warehouse from '@/backend/models/Warehouse';
 import RegionSettings from '@/backend/models/RegionSettings';
-import { getRegionConfig, SUPPORTED_COUNTRIES, THIRD_COUNTRY_CONFIG } from '@/backend/config/regionConfig';
+import Warehouse from '@/backend/models/Warehouse';
 
 export async function GET(req) {
   try {
@@ -10,19 +9,10 @@ export async function GET(req) {
 
     const { searchParams } = new URL(req.url);
     const manualCountry = searchParams.get('country');
-    const manualWarehouseId = searchParams.get('warehouseId');
 
-    let warehouse = null;
     let detectedCountryCode = null;
 
-    if (manualWarehouseId) {
-      warehouse = await Warehouse.findById(manualWarehouseId);
-      if (!warehouse) {
-        return NextResponse.json({ error: 'Warehouse not found' }, { status: 404 });
-      }
-      // Extract from warehouse
-      detectedCountryCode = warehouse.countryCode;
-    } else if (manualCountry) {
+    if (manualCountry) {
       detectedCountryCode = manualCountry.toUpperCase();
     } else {
       const forwarded = req.headers.get('x-forwarded-for');
@@ -44,58 +34,48 @@ export async function GET(req) {
       }
     }
 
-    if (!warehouse) {
-      const regionConfig = getRegionConfig(detectedCountryCode);
-      if (regionConfig.isThirdCountry) {
-        warehouse = await Warehouse.findOne({
-          isDefaultInternational: true,
-          status: 'Active',
-        });
-        if (!warehouse) {
-          warehouse = await Warehouse.findOne({
-            name: THIRD_COUNTRY_CONFIG.defaultWarehouseName,
-            status: 'Active',
-          });
-        }
-      } else {
-        warehouse = await Warehouse.findOne({
-          countryCode: regionConfig.countryCode,
-          status: 'Active',
-        });
-      }
-      
-      if (!warehouse) {
-        return NextResponse.json({
-          error: 'No warehouse available for your region',
-          detectedCountry: detectedCountryCode,
-        }, { status: 404 });
+    if (!detectedCountryCode) {
+      detectedCountryCode = 'GB'; // Default fallback
+    }
+
+    // Find if the detected country is an active Region
+    let region = await RegionSettings.findOne({ countryCode: detectedCountryCode, isActive: true });
+    let isThirdCountry = false;
+
+    // If not found, use a fallback region (e.g., the first active one, or a specific international default)
+    if (!region) {
+      isThirdCountry = true;
+      // Fallback to GB or NP
+      region = await RegionSettings.findOne({ countryCode: 'GB', isActive: true });
+      if (!region) {
+        region = await RegionSettings.findOne({ isActive: true }); // Just pick the first active one
       }
     }
 
-    // Now we have the warehouse, we can determine final outputs
-    const currency = warehouse.currency || 'GBP';
-    // Mapping symbols
-    const symbolMap = { 'NPR': 'रु', 'GBP': '£', 'USD': '$', 'EUR': '€' };
-    const currencySymbol = symbolMap[currency] || '£';
-
-    let taxRate = 0;
-    const regionDb = await RegionSettings.findOne({ countryCode: warehouse.countryCode });
-    if (regionDb) {
-      taxRate = regionDb.taxRate;
+    if (!region) {
+      return NextResponse.json({
+        error: 'No regions available',
+        detectedCountry: detectedCountryCode,
+      }, { status: 404 });
     }
+
+    // Check if there are any active warehouses for this region
+    const warehouses = await Warehouse.find({ countryCode: region.countryCode, status: 'Active' });
+    const canPurchase = warehouses.length > 0;
+
+    const symbolMap = { 'NPR': 'रु', 'GBP': '£', 'USD': '$', 'EUR': '€', 'AUD': 'A$', 'CAD': 'C$' };
+    const currencySymbol = symbolMap[region.currency] || '£';
 
     return NextResponse.json({
-      detectedCountryCode: detectedCountryCode || warehouse.countryCode,
-      countryCode: warehouse.countryCode,
-      countryName: warehouse.country || warehouse.name,
-      warehouseId: warehouse._id,
-      warehouseName: warehouse.name,
-      currency: currency,
+      detectedCountryCode: detectedCountryCode,
+      countryCode: region.countryCode,
+      countryName: region.countryName,
+      currency: region.currency,
       currencySymbol: currencySymbol,
-      taxRate,
-      isThirdCountry: warehouse.isDefaultInternational,
-      thirdCountryMode: warehouse.isDefaultInternational ? 'International Delivery' : null,
-      canPurchase: warehouse.status === 'Active',
+      taxRate: region.taxRate,
+      isThirdCountry: isThirdCountry,
+      thirdCountryMode: isThirdCountry ? 'International Delivery' : null,
+      canPurchase: canPurchase,
     });
 
   } catch (error) {

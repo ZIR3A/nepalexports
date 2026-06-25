@@ -4,7 +4,11 @@ import Product from '@/backend/models/Product';
 import Inventory from '@/backend/models/Inventory';
 import Category from '@/backend/models/Category';
 import Warehouse from '@/backend/models/Warehouse';
+import RegionSettings from '@/backend/models/RegionSettings';
+import mongoose from 'mongoose';
 import { authorizeRoles } from '@/backend/middleware/auth';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(req) {
   try {
@@ -30,26 +34,38 @@ export async function GET(req) {
       query['flashSale.expiresAt'] = { $gt: new Date() };
     }
     
+    let activeWarehouseIds = [];
+    let activeRegionId = null;
+
+    if (countryCode) {
+      const whs = await Warehouse.find({ countryCode: countryCode, status: 'Active' });
+      activeWarehouseIds = whs.map(w => String(w._id));
+      const region = await RegionSettings.findOne({ countryCode });
+      if (region) activeRegionId = String(region._id);
+    } else if (activeWarehouseId) {
+      activeWarehouseIds = [activeWarehouseId];
+      const wh = await Warehouse.findById(activeWarehouseId);
+      if (wh && wh.countryCode) {
+        const region = await RegionSettings.findOne({ countryCode: wh.countryCode });
+        if (region) activeRegionId = String(region._id);
+      }
+    }
+
     if (admin !== 'true') {
       query.isActive = true;
       // Only show published products on the storefront (not WMS drafts)
-      query.status = { $in: ['published', undefined, null] };
+      query.status = { $in: ['published', null] };
       
-      // Filter out products that don't have active pricing for this region
-      if (countryCode) {
-        query.pricing = {
-          $elemMatch: { country: countryCode, isActive: true }
-        };
-      }
-      
-      // Strict Warehouse filtering: Only show products with qty > 0 in this warehouse
-      if (activeWarehouseId) {
-        const localInventory = await Inventory.find({ 
-          warehouse: activeWarehouseId, 
-          quantity: { $gt: 0 } 
-        }).select('product');
-        const inStockProductIds = localInventory.map(inv => inv.product);
-        query._id = { $in: inStockProductIds };
+
+
+
+      // Allowed Regions strict regulatory block
+      query.$or = [
+        { allowedRegions: { $exists: false } },
+        { allowedRegions: { $size: 0 } }
+      ];
+      if (activeRegionId) {
+        query.$or.push({ allowedRegions: activeRegionId });
       }
     }
 
@@ -58,8 +74,6 @@ export async function GET(req) {
       .populate('subCategory', 'name slug')
       .sort({ createdAt: -1 });
 
-    // Map enrichment fields back to the legacy format expected by the storefront.
-    // We leave 'pricing' as the raw array for the UI to consume natively.
     let plainProducts = products.map(p => {
       const pObj = p.toJSON ? p.toJSON() : p;
       
@@ -106,45 +120,55 @@ export async function GET(req) {
       });
     }
 
-    // If activeWarehouseId is provided (storefront mode), filter to only products
-    // that have stock > 0 in the user's assigned warehouse
-    if (activeWarehouseId && admin !== 'true') {
-      // Fetch all inventory for this warehouse
-      const warehouseInventory = await Inventory.find({
-        warehouse: activeWarehouseId,
-        quantity: { $gt: 0 },
+    // If activeWarehouseIds exist (storefront mode), annotate stock info
+    if (activeWarehouseIds.length > 0 && admin !== 'true') {
+      const productIds = plainProducts.map(p => p._id);
+      
+      // Fetch all global inventory to determine import availability
+      const globalInventory = await Inventory.find({
+        product: { $in: productIds },
+        quantity: { $gt: 0 }
       });
 
-      // Build a set of product IDs that have stock in this warehouse
-      const inStockProductIds = new Set(
-        warehouseInventory.map(inv => String(inv.product))
-      );
-
-      // Also build a map of total stock per product for display
       const stockMap = {};
-      warehouseInventory.forEach(inv => {
+      const globalStockMap = {};
+      
+      globalInventory.forEach(inv => {
         const pid = String(inv.product);
-        stockMap[pid] = (stockMap[pid] || 0) + inv.quantity;
+        globalStockMap[pid] = (globalStockMap[pid] || 0) + inv.quantity;
+        
+        if (activeWarehouseIds.includes(String(inv.warehouse))) {
+          stockMap[pid] = (stockMap[pid] || 0) + inv.quantity;
+        }
       });
 
-      // Filter out products that have no stock in this warehouse,
-      // and annotate the remaining products with local stock info
+      // Annotate the remaining products with fulfillmentStatus
       plainProducts = plainProducts
-        .filter(pObj => inStockProductIds.has(String(pObj._id)))
         .map(pObj => {
           const pid = String(pObj._id);
           const localStock = stockMap[pid] || 0;
+          const globalStock = globalStockMap[pid] || 0;
+          
+          let fulfillmentStatus = 'OUT_OF_STOCK';
+          if (localStock > 0) {
+            fulfillmentStatus = 'IN_STOCK';
+          } else if (globalStock > 0 && pObj.allowImport) {
+            fulfillmentStatus = 'AVAILABLE_VIA_IMPORT';
+          }
+
           return {
             ...pObj,
             localStock,
-            isUnavailable: localStock === 0,
+            fulfillmentStatus,
+            isUnavailable: fulfillmentStatus === 'OUT_OF_STOCK',
           };
         });
       
-      // Products with zero stock appear last (should be none now, but just in case)
+      // Products with OUT_OF_STOCK appear last
       plainProducts.sort((a, b) => {
-        if (a.isUnavailable === b.isUnavailable) return 0;
-        return a.isUnavailable ? 1 : -1;
+        if (a.fulfillmentStatus === 'OUT_OF_STOCK' && b.fulfillmentStatus !== 'OUT_OF_STOCK') return 1;
+        if (a.fulfillmentStatus !== 'OUT_OF_STOCK' && b.fulfillmentStatus === 'OUT_OF_STOCK') return -1;
+        return 0;
       });
     }
 

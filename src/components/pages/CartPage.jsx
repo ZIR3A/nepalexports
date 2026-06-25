@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import { ShoppingBag, Minus, Plus, Trash2, ArrowRight, AlertCircle, Loader2 } from "lucide-react";
 import { Button } from "../ui/button";
+import { useAppContext } from "@/context/AppContext";
 
 export default function CartPage({ setPage, cart, setCart }) {
+  const { removeFromCart, userCountry } = useAppContext();
   const [coupon, setCoupon] = useState("");
   const [couponApplied, setCouponApplied] = useState(false);
   
@@ -18,11 +20,11 @@ export default function CartPage({ setPage, cart, setCart }) {
         setValidationError(null);
         setStockErrors([]);
         try {
-          // Validate against GB by default to check generic stock levels
+          // Validate against user's actual region to check stock levels
           const res = await fetch("/api/checkout/validate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ items: cart, country: "GB" })
+            body: JSON.stringify({ items: cart, country: userCountry || "GB" })
           });
           const data = await res.json();
           if (!res.ok) {
@@ -44,7 +46,7 @@ export default function CartPage({ setPage, cart, setCart }) {
       setValidationData(null);
       setStockErrors([]);
     }
-  }, [cart]);
+  }, [cart, userCountry]);
 
   const updateQty = (id, color, size, qty) => {
     if (qty <= 0) {
@@ -58,6 +60,15 @@ export default function CartPage({ setPage, cart, setCart }) {
 
   const discount = couponApplied && validationData ? validationData.subtotal * 0.15 : 0;
   const total = validationData ? validationData.total - discount : 0;
+
+  const itemsToRender = validationData ? validationData.items : cart;
+
+  const formatMoney = (amount) => {
+    if (!validationData) return `£${amount.toFixed(2)}`;
+    const cur = validationData.currency;
+    const symbol = cur === "NPR" ? "रु" : cur === "USD" ? "$" : cur === "EUR" ? "€" : "£";
+    return cur === "NPR" ? `${symbol}${amount.toFixed(0)}` : `${symbol}${amount.toFixed(2)}`;
+  };
 
   if (cart.length === 0) {
     return (
@@ -103,15 +114,22 @@ export default function CartPage({ setPage, cart, setCart }) {
         <div className="grid lg:grid-cols-3 gap-12">
           {/* Items */}
           <div className="lg:col-span-2 space-y-0 border-t border-border">
-            {cart.map((item, i) => (
+            {itemsToRender.map((item, i) => (
               <div key={i} className="flex gap-6 py-6 border-b border-border">
-                <img
-                  src={item.image}
-                  alt={item.name}
-                  className="w-24 object-cover bg-muted shrink-0 cursor-pointer"
-                  onClick={() => setPage("product")}
-                  style={{ height: "7.5rem" }}
-                />
+                <div className="shrink-0 cursor-pointer" onClick={() => setPage("product")}>
+                  {item.image || (item.images && item.images[0]) ? (
+                    <img
+                      src={item.image || item.images[0]}
+                      alt={item.name}
+                      className="w-24 object-cover bg-muted"
+                      style={{ height: "7.5rem" }}
+                    />
+                  ) : (
+                    <div className="w-24 bg-muted flex items-center justify-center border border-border" style={{ height: "7.5rem" }}>
+                      <span className="font-mono text-xs text-muted-foreground uppercase text-center break-words px-2">Drape</span>
+                    </div>
+                  )}
+                </div>
                 <div className="flex-1 flex flex-col justify-between">
                   <div className="flex items-start justify-between">
                     <div>
@@ -127,7 +145,7 @@ export default function CartPage({ setPage, cart, setCart }) {
                       </div>
                     </div>
                     <button
-                      onClick={() => updateQty(item.id, item.selectedColor, item.selectedSize, 0)}
+                      onClick={() => removeFromCart(item.id, item.selectedColor, item.selectedSize)}
                       className="text-muted-foreground hover:text-red-400 transition-colors"
                     >
                       <Trash2 size={15} />
@@ -152,7 +170,7 @@ export default function CartPage({ setPage, cart, setCart }) {
                       </button>
                     </div>
                     <span className="font-mono text-lg font-medium text-foreground">
-                      £{(item.price * item.quantity).toFixed(2)}
+                      {formatMoney(item.price * item.quantity)}
                     </span>
                   </div>
                 </div>
@@ -167,27 +185,27 @@ export default function CartPage({ setPage, cart, setCart }) {
             <div className="space-y-3 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Subtotal</span>
-                <span className="font-mono text-foreground">{validationData ? `£${validationData.subtotal.toFixed(2)}` : "—"}</span>
+                <span className="font-mono text-foreground">{validationData ? formatMoney(validationData.subtotal) : "—"}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Shipping</span>
-                <span className="font-mono text-foreground">{validationData ? (validationData.shippingCost === 0 ? "Free" : `£${validationData.shippingCost.toFixed(2)}`) : "—"}</span>
+                <span className="font-mono text-foreground">{validationData ? (validationData.shippingCost === 0 ? "Free" : formatMoney(validationData.shippingCost)) : "—"}</span>
               </div>
               {couponApplied && validationData && (
                 <div className="flex justify-between text-emerald-400">
                   <span>Discount (LAUNCH15)</span>
-                  <span className="font-mono">-£{discount.toFixed(2)}</span>
+                  <span className="font-mono">-{formatMoney(discount)}</span>
                 </div>
               )}
               <div className="flex justify-between text-muted-foreground text-xs">
-                <span>VAT</span>
-                <span className="font-mono">{validationData ? `£${validationData.taxAmount.toFixed(2)}` : "—"}</span>
+                <span>VAT {validationData && validationData.taxRate > 0 ? `(${validationData.taxRate}%)` : ""}</span>
+                <span className="font-mono">{validationData ? formatMoney(validationData.taxAmount) : "—"}</span>
               </div>
             </div>
 
             <div className="border-t border-border mt-4 pt-4 flex justify-between">
               <span className="font-medium text-foreground">Total</span>
-              <span className="font-mono text-xl font-medium text-foreground">{validationData ? `£${total.toFixed(2)}` : "—"}</span>
+              <span className="font-mono text-xl font-medium text-foreground">{validationData ? formatMoney(total) : "—"}</span>
             </div>
 
             {/* Coupon */}

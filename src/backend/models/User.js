@@ -48,6 +48,9 @@ const UserSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Product'
   }],
+  cart: [{
+    type: mongoose.Schema.Types.Mixed // Full cart payload to match frontend caching
+  }],
   paymentMethods: [{
     type: { type: String, enum: ['Visa', 'Mastercard', 'Amex'] },
     last4: { type: String },

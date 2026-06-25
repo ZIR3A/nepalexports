@@ -39,7 +39,10 @@ export default function EditProductPage() {
       shelfLife: "",
       storageConditions: "Room Temperature",
       certifications: []
-    }
+    },
+    allowImport: false,
+    importSurcharge: "",
+    allowedRegions: []
   });
   const [availableCountries, setAvailableCountries] = useState(["NP", "GB"]);
   const [mainCategory, setMainCategory] = useState("");
@@ -57,7 +60,7 @@ export default function EditProductPage() {
       fetch("/api/categories").then(res => res.json()),
       fetch("/api/warehouses").then(res => res.json()),
       fetch("/api/regions").then(res => res.json()),
-      fetch(`/api/products/${productId}`).then(res => res.json())
+      fetch(`/api/products/${productId}?admin=true`).then(res => res.json())
     ]).then(([cats, whs, regions, prodData]) => {
       setCategories(cats);
       setWarehouses(whs);
@@ -84,7 +87,10 @@ export default function EditProductPage() {
             shelfLife: "",
             storageConditions: "Room Temperature",
             certifications: []
-          }
+          },
+          allowImport: prodData.allowImport || false,
+          importSurcharge: prodData.importSurcharge || "",
+          allowedRegions: prodData.allowedRegions || []
         });
         
         setMainCategory(prodData.mainCategory?._id || prodData.mainCategory || "");
@@ -213,7 +219,7 @@ export default function EditProductPage() {
       const payload = {
         ...formData,
         pricing: formData.pricing,
-        mainCategory,
+        mainCategory: mainCategory || null,
         subCategory: subCategory || null,
         attributes,
         availableCountries,
@@ -232,7 +238,8 @@ export default function EditProductPage() {
             : formData.foodCompliance?.dietaryTags || []
         },
         logisticsAttributes: formData.logisticsAttributes,
-        isActive: (overrideStatus || formData.status) === 'published' ? true : formData.isActive
+        isActive: (overrideStatus || formData.status) === 'published' ? true : formData.isActive,
+        allowedRegions: formData.allowedRegions
       };
 
       const res = await fetch(`/api/products/${productId}`, {
@@ -425,7 +432,64 @@ export default function EditProductPage() {
               </div>
             </div>
 
+          </div>
 
+          <div className="bg-card border border-border p-6 rounded-md">
+            <h3 className="font-medium mb-4">Cross-Border Logistics & Regulatory</h3>
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <div className="space-y-2 flex flex-col justify-end">
+                <label className="flex items-center gap-2 mb-2 text-sm font-medium">
+                  <input type="checkbox" checked={formData.allowImport} onChange={e => {
+                    setFormData({ ...formData, allowImport: e.target.checked });
+                  }} />
+                  Enable Cross-Border Import
+                </label>
+                <p className="text-xs text-muted-foreground">If enabled, this product can be fulfilled via import when local stock is zero.</p>
+              </div>
+              
+              {formData.allowImport && (
+                <div className="space-y-2">
+                  <Label>Import Surcharge Cost (Flat Fee)</Label>
+                  <Input 
+                    type="number" 
+                    min="0"
+                    placeholder="e.g. 15.00" 
+                    value={formData.importSurcharge} 
+                    onChange={e => setFormData({ ...formData, importSurcharge: Number(e.target.value) })} 
+                  />
+                  <p className="text-xs text-muted-foreground">Flat fee applied per unit to cover international freight/customs.</p>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-6 border-t border-border">
+              <h3 className="font-medium mb-4 text-purple-600">Allowed Regions (Regulatory Restrictions)</h3>
+              <p className="text-sm text-muted-foreground mb-4">Select the regions where this product is legally permitted to be sold. If no regions are selected, the product is allowed everywhere by default.</p>
+              <div className="flex flex-wrap gap-4">
+                {dbRegions.map(region => {
+                  const isSelected = formData.allowedRegions.includes(region._id);
+                  return (
+                    <label key={region._id} className={`flex items-center gap-2 p-3 border rounded-md cursor-pointer transition-colors ${isSelected ? "border-purple-500 bg-purple-500/10 text-purple-700" : "border-border bg-background hover:bg-muted/50"}`}>
+                      <input 
+                        type="checkbox" 
+                        className="hidden"
+                        checked={isSelected} 
+                        onChange={(e) => {
+                          const newRegions = e.target.checked 
+                            ? [...formData.allowedRegions, region._id] 
+                            : formData.allowedRegions.filter(id => id !== region._id);
+                          setFormData({ ...formData, allowedRegions: newRegions });
+                        }}
+                      />
+                      <div className={`w-4 h-4 rounded border flex items-center justify-center ${isSelected ? "bg-purple-500 border-purple-500" : "border-input"}`}>
+                        {isSelected && <svg width="10" height="8" viewBox="0 0 10 8" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                      </div>
+                      <span className="text-sm font-medium">{region.countryName} ({region.countryCode})</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -12,6 +12,8 @@ const OrderItemSchema = new mongoose.Schema({
   color: { type: String },
   quantity: { type: Number, required: true, min: 1 },
   price: { type: Number, required: true },
+  fulfillmentStatus: { type: String, enum: ['IN_STOCK', 'AVAILABLE_VIA_IMPORT'] },
+  warehouse: { type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse' },
 });
 
 const OrderSchema = new mongoose.Schema({
@@ -42,6 +44,7 @@ const OrderSchema = new mongoose.Schema({
     subtotal: { type: Number, required: true },
     shippingCost: { type: Number, required: true },
     taxAmount: { type: Number, required: true },
+    importFees: { type: Number, default: 0 },
     total: { type: Number, required: true },
   },
   status: {
@@ -58,20 +61,19 @@ const OrderSchema = new mongoose.Schema({
     },
     transactionId: { type: String },
   },
-  warehouse: {
+  warehouses: [{
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Warehouse',
-    required: true, // The warehouse responsible for fulfillment
-  },
+    ref: 'Warehouse'
+  }], // The warehouses responsible for fulfillment
 }, { timestamps: true });
 
 // Auto-generate a readable order number before saving if not provided
-OrderSchema.pre('validate', function(next) {
+OrderSchema.pre('validate', async function() {
   if (!this.orderNumber) {
     const randomNum = Math.floor(10000 + Math.random() * 90000);
     this.orderNumber = `DRP-${randomNum}`;
   }
-  next();
 });
 
-export default mongoose.models.Order || mongoose.model('Order', OrderSchema);
+delete mongoose.models.Order;
+export default mongoose.model('Order', OrderSchema);

@@ -17,10 +17,10 @@ export default function HomePage({ setPage, cart, setCart, wishlist, toggleWishl
     const fetchProducts = async () => {
       try {
         setIsLoading(true);
-        // Build URL with warehouse filter for localized results
+        // Build URL with region filter for localized results
         let url = '/api/products';
         const params = new URLSearchParams();
-        if (warehouseId) params.set('warehouseId', warehouseId);
+        if (userCountry) params.set('countryCode', userCountry);
         if (params.toString()) url += `?${params.toString()}`;
         
         const res = await fetch(url);
@@ -58,10 +58,8 @@ export default function HomePage({ setPage, cart, setCart, wishlist, toggleWishl
       }
     };
     
-    if (warehouseId) {
-      fetchProducts();
-    }
-  }, [warehouseId, currency]);
+    fetchProducts();
+  }, [userCountry, currency]);
 
   const addToCart = (product) => {
     if (!canPurchase || product.isUnavailable) return;

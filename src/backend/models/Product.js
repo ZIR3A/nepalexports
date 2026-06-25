@@ -60,6 +60,10 @@ const ProductSchema = new mongoose.Schema({
     dietaryTags: [{ type: String }]
   },
 
+  allowImport: { type: Boolean, default: false },
+  importSurcharge: { type: Number, default: 0 },
+  allowedRegions: [{ type: mongoose.Schema.Types.ObjectId, ref: 'RegionSettings' }],
+
   logisticsAttributes: {
     shelfLife: { type: String },
     storageConditions: { type: String, enum: ['Frozen', 'Refrigerated', 'Room Temperature'] },

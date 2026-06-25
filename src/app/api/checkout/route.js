@@ -4,22 +4,61 @@ import Order from '@/backend/models/Order';
 import Inventory from '@/backend/models/Inventory';
 import Product from '@/backend/models/Product';
 import Batch from '@/backend/models/Batch';
+import User from '@/backend/models/User';
 import { schedulePaymentTimeout } from '@/backend/lib/queue';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../auth/[...nextauth]/route';
 
 export async function POST(req) {
   try {
     await connectToDatabase();
+    
+    // 1. Session & KYC Gate
+    const session = await getServerSession(authOptions);
+    if (!session || !session.user) {
+      return NextResponse.json({ error: "Unauthorized. Please log in to complete checkout." }, { status: 401 });
+    }
+    
     const body = await req.json();
-    const { 
+    let { 
+      kycData,
       items, 
       customerDetails, 
       shippingAddress, 
       billing, 
       paymentMethod,
-      warehouseId 
+      warehouses 
     } = body;
 
-    if (!items || !items.length || !warehouseId) {
+    // Backfill missing customer details from DB User if KYC was previously completed
+    const dbUser = await User.findById(session.user.id);
+    if (dbUser) {
+      if (!customerDetails.firstName) customerDetails.firstName = dbUser.firstName;
+      if (!customerDetails.lastName) customerDetails.lastName = dbUser.lastName;
+    }
+
+    if (session.user.kycStatus !== 'COMPLETED' && !kycData) {
+      return NextResponse.json({ error: "KYC Verification Required. Please complete KYC before checkout." }, { status: 403 });
+    }
+
+    if (kycData) {
+      // Process KYC Data
+      await User.findByIdAndUpdate(session.user.id, {
+        kycStatus: 'COMPLETED',
+        phoneNumber: kycData.phone,
+        firstName: kycData.firstName || session.user.firstName,
+        lastName: kycData.lastName || session.user.lastName,
+        address: kycData.address,
+        // Assuming coordinates are saved in a custom field or embedded in address. 
+        // We'll attach it to the user object directly for now if needed, 
+        // or just log it/save to a new location schema if necessary.
+        // If we want to strictly save coordinates in the Order document, we can pass it down.
+      });
+      // Update session object in memory for the rest of this request
+      session.user.kycStatus = 'COMPLETED';
+    }
+
+    if (!items || !items.length || !warehouses || warehouses.length === 0) {
       return NextResponse.json({ error: "Invalid order data" }, { status: 400 });
     }
 
@@ -38,21 +77,30 @@ export async function POST(req) {
         continue;
       }
 
-      const variant = product.variants.find(v => 
-        (v.size === item.selectedSize || v.size === 'N/A') && 
-        (v.color === item.selectedColor || v.color === 'N/A')
-      );
+      const variant = product.variants?.find(v => {
+        if (item.productType === 'food' || (product.category || '').toLowerCase() === 'food') {
+          const flavor = v.attributes?.get ? v.attributes.get('flavor') : v.attributes?.flavor;
+          const weight = v.attributes?.get ? v.attributes.get('weight') : v.attributes?.weight;
+          const packSize = v.attributes?.get ? v.attributes.get('packSize') : v.attributes?.packSize;
+          const matchFlavor = flavor === item.selectedColor || flavor === 'N/A' || !flavor;
+          const matchWeight = weight === item.selectedSize || packSize === item.selectedSize || weight === 'N/A' || !weight;
+          return matchFlavor && matchWeight;
+        }
+        const size = v.attributes?.get ? v.attributes.get('size') : v.attributes?.size;
+        const color = v.attributes?.get ? v.attributes.get('color') : v.attributes?.color;
+        return (size === item.selectedSize || size === 'N/A') && (color === item.selectedColor || color === 'N/A');
+      });
 
       if (!variant) {
         stockErrors.push(`Variant invalid for ${item.name}.`);
         continue;
       }
 
-      // Fetch all valid batches sorted by expiryDate (ascending) for FIFO
+      // Fetch all valid batches sorted by expiryDate (ascending) for FIFO across all selected warehouses
       const validBatches = await Batch.find({
         product: product._id,
         variantId: variant._id,
-        warehouse: warehouseId,
+        warehouse: { $in: warehouses },
         $or: [
           { expiryDate: { $gt: now } },
           { expiryDate: { $exists: false } },
@@ -63,7 +111,11 @@ export async function POST(req) {
 
       const totalAvailable = validBatches.reduce((sum, b) => sum + b.quantity, 0);
 
-      if (totalAvailable < item.quantity) {
+      // Check raw inventory as a fallback in case batches are not fully populated
+      const localInventories = await Inventory.find({ product: product._id, variantId: variant._id, warehouse: { $in: warehouses } });
+      const rawAvailable = localInventories.reduce((sum, inv) => sum + (inv.quantity - (inv.reservedQuantity || 0)), 0);
+
+      if (totalAvailable < item.quantity && rawAvailable < item.quantity) {
         stockErrors.push(`Insufficient stock for ${item.name}.`);
         continue;
       }
@@ -81,16 +133,26 @@ export async function POST(req) {
           // Exhaust this batch and continue
           batchUpdates.push({ batchId: batch._id, deductQuantity: batch.quantity });
           remainingToDeduct -= batch.quantity;
+          
+          inventoryUpdates.push({
+            product: product._id,
+            variantId: variant._id,
+            warehouse: batch.warehouse,
+            deductQuantity: batch.quantity
+          });
         }
       }
 
-      // Track aggregate inventory deduction
-      inventoryUpdates.push({
-        product: product._id,
-        variantId: variant._id,
-        warehouse: warehouseId,
-        deductQuantity: item.quantity
-      });
+      // If we couldn't deduct enough from batches (maybe no batches exist, so fallback to raw inventory)
+      if (remainingToDeduct > 0) {
+        // Fallback: Just push a generic inventory update without batch
+        inventoryUpdates.push({
+          product: product._id,
+          variantId: variant._id,
+          warehouse: warehouses[0], // fallback to first warehouse
+          deductQuantity: remainingToDeduct
+        });
+      }
     }
 
     if (stockErrors.length > 0) {
@@ -123,8 +185,12 @@ export async function POST(req) {
 
     // Create Order in Pending State
     const newOrder = new Order({
+      user: session.user.id,
       customerDetails,
-      shippingAddress,
+      shippingAddress: {
+        ...shippingAddress,
+        coordinates: kycData?.coordinates || null
+      },
       items: items.map(i => ({
         product: i.id,
         name: i.name,
@@ -133,6 +199,7 @@ export async function POST(req) {
         color: i.selectedColor,
         quantity: i.quantity,
         price: i.price,
+        fulfillmentStatus: i.fulfillmentStatus || 'IN_STOCK'
       })),
       billing,
       payment: {
@@ -140,11 +207,12 @@ export async function POST(req) {
         status: 'Pending',
         transactionId: `txn_pending_${Math.random().toString(36).substr(2, 9)}`
       },
-      warehouse: warehouseId,
+      warehouses: warehouses,
       status: 'Pending',
     });
 
     await newOrder.save();
+
 
     // Schedule the 1-minute (dev) or 15-minute (prod) grace period timeout
     // Using 1 minute (60000ms) for testing as requested
@@ -157,7 +225,7 @@ export async function POST(req) {
         orderId: newOrder._id,
         orderNumber: newOrder.orderNumber,
         items: newOrder.items,
-        warehouseId: newOrder.warehouse
+        warehouses: newOrder.warehouses
       });
     } catch (wmsErr) {
       console.error('Failed to notify WMS of order allocation:', wmsErr);

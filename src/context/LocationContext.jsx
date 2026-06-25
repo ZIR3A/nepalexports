@@ -25,8 +25,6 @@ export function LocationProvider({ children }) {
     return {
       countryCode: null,
       countryName: null,
-      warehouseId: null,
-      warehouseName: null,
       currency: "GBP",
       currencySymbol: "£",
       taxRate: 0,
@@ -38,22 +36,22 @@ export function LocationProvider({ children }) {
     };
   });
 
-  const [activeWarehouses, setActiveWarehouses] = useState([]);
+  const [activeRegions, setActiveRegions] = useState([]);
 
   useEffect(() => {
-    // Fetch active warehouses globally
-    const fetchWarehouses = async () => {
+    // Fetch active regions globally
+    const fetchRegions = async () => {
       try {
-        const res = await fetch('/api/warehouses');
+        const res = await fetch('/api/regions');
         if (res.ok) {
           const data = await res.json();
-          setActiveWarehouses(data || []);
+          setActiveRegions(data || []);
         }
       } catch (err) {
-        console.error('Failed to fetch warehouses', err);
+        console.error('Failed to fetch regions', err);
       }
     };
-    fetchWarehouses();
+    fetchRegions();
   }, []);
 
   // Auto-detect if no choice is saved
@@ -72,8 +70,6 @@ export function LocationProvider({ children }) {
       setLocationData({
         countryCode: data.countryCode,
         countryName: data.countryName,
-        warehouseId: data.warehouseId,
-        warehouseName: data.warehouseName,
         currency: data.currency,
         currencySymbol: data.currencySymbol,
         taxRate: data.taxRate || 0,
@@ -100,22 +96,18 @@ export function LocationProvider({ children }) {
     }
   };
 
-  // Allow user to manually set their warehouse
-  const setManualWarehouse = useCallback(async (warehouseId) => {
+  // Allow user to manually set their region
+  const setManualRegion = useCallback(async (countryCode) => {
     try {
       setLocationData(prev => ({ ...prev, isLoading: true }));
       
-      // We pass the warehouse ID to the backend detection route (or a new assignment route)
-      // to resolve the exact details for this user now shopping from this warehouse
-      const res = await fetch(`/api/geo/detect?warehouseId=${warehouseId}`);
-      if (!res.ok) throw new Error("Failed to resolve warehouse");
+      const res = await fetch(`/api/geo/detect?country=${countryCode}`);
+      if (!res.ok) throw new Error("Failed to resolve region");
       const data = await res.json();
 
       const newData = {
         countryCode: data.countryCode,
         countryName: data.countryName,
-        warehouseId: data.warehouseId,
-        warehouseName: data.warehouseName,
         currency: data.currency,
         currencySymbol: data.currencySymbol,
         taxRate: data.taxRate || 0,
@@ -130,7 +122,7 @@ export function LocationProvider({ children }) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(newData));
       window.location.reload();
     } catch (err) {
-      console.error("Manual warehouse set error:", err);
+      console.error("Manual region set error:", err);
       setLocationData(prev => ({ ...prev, isLoading: false }));
     }
   }, []);
@@ -142,8 +134,8 @@ export function LocationProvider({ children }) {
 
   const value = {
     ...locationData,
-    activeWarehouses,
-    setManualWarehouse,
+    activeRegions,
+    setManualRegion,
     detectLocation,
     formatPrice,
   };

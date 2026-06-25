@@ -61,10 +61,17 @@ export const authOptions = {
           token.role = dbUser.role;
           token.id = dbUser._id.toString();
           token.kycStatus = dbUser.kycStatus;
+          token.firstName = dbUser.firstName;
+          token.lastName = dbUser.lastName;
+          token.address = dbUser.address;
+          token.phoneNumber = dbUser.phoneNumber;
         } else {
           token.role = user.role || 'user';
           token.id = user.id;
           token.kycStatus = 'PENDING';
+          const nameParts = (user.name || "").split(" ");
+          token.firstName = nameParts[0] || "";
+          token.lastName = nameParts.slice(1).join(" ") || "";
         }
       }
       return token;
@@ -74,6 +81,10 @@ export const authOptions = {
         session.user.role = token.role;
         session.user.id = token.id;
         session.user.kycStatus = token.kycStatus;
+        session.user.firstName = token.firstName;
+        session.user.lastName = token.lastName;
+        session.user.address = token.address;
+        session.user.phoneNumber = token.phoneNumber;
       }
       return session;
     },

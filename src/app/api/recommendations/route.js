@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import connectToDatabase from '@/backend/config/db';
 import Product from '@/backend/models/Product';
 import Inventory from '@/backend/models/Inventory';
+import Warehouse from '@/backend/models/Warehouse';
 
 export async function GET(req) {
   try {
@@ -11,15 +12,22 @@ export async function GET(req) {
     const productId = searchParams.get('productId');
     const categoryId = searchParams.get('categoryId');
     const tagsParam = searchParams.get('tags');
-    const warehouseId = searchParams.get('warehouseId');
+    const countryCode = searchParams.get('countryCode');
 
-    if (!warehouseId) {
-      return NextResponse.json({ message: 'Missing warehouseId' }, { status: 400 });
+    if (!countryCode) {
+      return NextResponse.json({ message: 'Missing countryCode' }, { status: 400 });
     }
 
-    // 1. Fetch inventory for the specific warehouse where stock > 0
+    const whs = await Warehouse.find({ countryCode: countryCode, status: 'Active' });
+    const activeWarehouseIds = whs.map(w => String(w._id));
+
+    if (activeWarehouseIds.length === 0) {
+      return NextResponse.json([]); // No active warehouses for this region, no recommendations
+    }
+
+    // 1. Fetch inventory for the regional warehouses where stock > 0
     const warehouseInventory = await Inventory.find({
-      warehouse: warehouseId,
+      warehouse: { $in: activeWarehouseIds },
       quantity: { $gt: 0 },
     });
 
