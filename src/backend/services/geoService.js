@@ -38,7 +38,7 @@ export const geoService = {
     // 1. Find warehouses that serve this country
     const warehouses = await Warehouse.find({
       countriesServed: countryCode,
-      isActive: true
+      status: 'Active'
     });
 
     if (warehouses.length > 0) {
@@ -53,7 +53,7 @@ export const geoService = {
     // 3. Fallback: return default international warehouse
     const defaultWarehouse = await Warehouse.findOne({
       isDefaultInternational: true,
-      isActive: true
+      status: 'Active'
     });
 
     if (defaultWarehouse) {
@@ -61,7 +61,7 @@ export const geoService = {
     }
 
     // 4. Absolute fallback: Return first active warehouse
-    const anyActive = await Warehouse.findOne({ isActive: true });
+    const anyActive = await Warehouse.findOne({ status: 'Active' });
     
     if (!anyActive) {
       throw new Error('No active warehouses found in the system');

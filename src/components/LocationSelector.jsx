@@ -20,18 +20,29 @@ const OTHER_COUNTRIES = [
 ];
 
 /**
+ * Helper to get a flag emoji based on country code
+ */
+const getFlagEmoji = (countryCode) => {
+  if (!countryCode) return "🌐";
+  const codePoints = countryCode
+    .toUpperCase()
+    .split('')
+    .map(char => 127397 + char.charCodeAt());
+  return String.fromCodePoint(...codePoints);
+};
+
+/**
  * First-visit modal that asks the user to select their shopping location.
  */
 export function LocationModal() {
-  const { hasSelected, isLoading, setManualCountry } = useLocation();
+  const { hasSelected, isLoading, setManualWarehouse, activeWarehouses } = useLocation();
   const [isOpen, setIsOpen] = useState(true);
-  const [showOthers, setShowOthers] = useState(false);
 
   // Don't show if already selected or still loading
   if (hasSelected || isLoading || !isOpen) return null;
 
-  const handleSelect = async (code) => {
-    await setManualCountry(code);
+  const handleSelect = async (id) => {
+    await setManualWarehouse(id);
     setIsOpen(false);
   };
 
@@ -66,64 +77,30 @@ export function LocationModal() {
           </p>
 
           {/* Primary country options */}
-          <div className="space-y-3 mb-4">
-            {COUNTRIES.map((c) => (
-              <button
-                key={c.code}
-                onClick={() => handleSelect(c.code)}
-                className="w-full flex items-center gap-4 p-4 border border-border rounded-lg hover:border-accent/50 hover:bg-accent/5 transition-all group"
-              >
-                <span className="text-2xl">{c.flag}</span>
-                <div className="flex-1 text-left">
-                  <p className="text-sm font-medium text-foreground group-hover:text-accent transition-colors">
-                    {c.name}
-                  </p>
-                  <p className="text-xs text-muted-foreground font-mono">
-                    {c.symbol} {c.currency}
-                  </p>
-                </div>
-                <ChevronDown className="w-4 h-4 text-muted-foreground -rotate-90" />
-              </button>
-            ))}
-          </div>
-
-          {/* Other countries */}
-          <button
-            onClick={() => setShowOthers(!showOthers)}
-            className="w-full flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <Globe className="w-3.5 h-3.5" />
-            <span>Shopping from elsewhere?</span>
-            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showOthers ? "rotate-180" : ""}`} />
-          </button>
-
-          <AnimatePresence>
-            {showOthers && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="overflow-hidden"
-              >
-                <div className="grid grid-cols-2 gap-2 pt-2">
-                  {OTHER_COUNTRIES.map((c) => (
-                    <button
-                      key={c.code}
-                      onClick={() => handleSelect(c.code)}
-                      className="flex items-center gap-2 p-3 border border-border rounded-md hover:border-accent/50 hover:bg-accent/5 transition-all text-sm"
-                    >
-                      <span>{c.flag}</span>
-                      <span className="text-muted-foreground truncate">{c.name}</span>
-                    </button>
-                  ))}
-                </div>
-                <p className="text-[10px] text-muted-foreground text-center mt-3 font-mono">
-                  International orders are fulfilled from our UK warehouse
-                </p>
-              </motion.div>
+          <div className="space-y-3 mb-4 max-h-[300px] overflow-y-auto">
+            {activeWarehouses?.length > 0 ? (
+              activeWarehouses.map((w) => (
+                <button
+                  key={w._id}
+                  onClick={() => handleSelect(w._id)}
+                  className="w-full flex items-center gap-4 p-4 border border-border rounded-lg hover:border-accent/50 hover:bg-accent/5 transition-all group"
+                >
+                  <span className="text-2xl">{getFlagEmoji(w.countryCode || 'GB')}</span>
+                  <div className="flex-1 text-left">
+                    <p className="text-sm font-medium text-foreground group-hover:text-accent transition-colors">
+                      {w.country || w.name}
+                    </p>
+                    <p className="text-xs text-muted-foreground font-mono">
+                      {w.currency}
+                    </p>
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-muted-foreground -rotate-90" />
+                </button>
+              ))
+            ) : (
+              <div className="text-center text-sm text-muted-foreground p-4">Loading regions...</div>
             )}
-          </AnimatePresence>
+          </div>
         </motion.div>
       </motion.div>
     </AnimatePresence>
@@ -135,14 +112,14 @@ export function LocationModal() {
  * Shows current country flag + currency, click to change.
  */
 export function LocationIndicator() {
-  const { countryCode, currency, currencySymbol, isLoading, setManualCountry, canPurchase, isThirdCountry } = useLocation();
+  const { warehouseId, currency, isLoading, setManualWarehouse, canPurchase, isThirdCountry, activeWarehouses } = useLocation();
   const [isOpen, setIsOpen] = useState(false);
 
-  const currentCountry = [...COUNTRIES, ...OTHER_COUNTRIES].find(c => c.code === countryCode);
-  const flag = currentCountry?.flag || "🌐";
+  const selectedWarehouse = activeWarehouses?.find(w => w._id === warehouseId);
+  const flag = getFlagEmoji(selectedWarehouse?.countryCode || "GB");
 
-  const handleSelect = async (code) => {
-    await setManualCountry(code);
+  const handleSelect = async (id) => {
+    await setManualWarehouse(id);
     setIsOpen(false);
   };
 
@@ -180,40 +157,26 @@ export function LocationIndicator() {
               <p className="text-[10px] font-mono tracking-wider uppercase text-muted-foreground px-2 mb-2">
                 Shopping Region
               </p>
-              <div className="space-y-1">
-                {COUNTRIES.map((c) => (
-                  <button
-                    key={c.code}
-                    onClick={() => handleSelect(c.code)}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
-                      countryCode === c.code 
-                        ? "bg-accent/10 text-accent" 
-                        : "hover:bg-muted text-foreground"
-                    }`}
-                  >
-                    <span className="text-lg">{c.flag}</span>
-                    <span className="text-sm flex-1 text-left">{c.name}</span>
-                    {countryCode === c.code && <Check className="w-4 h-4" />}
-                  </button>
-                ))}
-                
-                <div className="border-t border-border my-1.5" />
-                
-                {OTHER_COUNTRIES.slice(0, 3).map((c) => (
-                  <button
-                    key={c.code}
-                    onClick={() => handleSelect(c.code)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
-                      countryCode === c.code 
-                        ? "bg-accent/10 text-accent" 
-                        : "hover:bg-muted text-muted-foreground"
-                    }`}
-                  >
-                    <span className="text-lg">{c.flag}</span>
-                    <span className="text-xs flex-1 text-left">{c.name}</span>
-                    {countryCode === c.code && <Check className="w-3.5 h-3.5" />}
-                  </button>
-                ))}
+              <div className="space-y-1 max-h-[300px] overflow-y-auto">
+                {activeWarehouses?.length > 0 ? (
+                  activeWarehouses.map((w) => (
+                    <button
+                      key={w._id}
+                      onClick={() => handleSelect(w._id)}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
+                        warehouseId === w._id 
+                          ? "bg-accent/10 text-accent" 
+                          : "hover:bg-muted text-foreground"
+                      }`}
+                    >
+                      <span className="text-lg">{getFlagEmoji(w.countryCode)}</span>
+                      <span className="text-sm flex-1 text-left">{w.country || w.name}</span>
+                      {warehouseId === w._id && <Check className="w-4 h-4" />}
+                    </button>
+                  ))
+                ) : (
+                  <div className="text-center text-xs text-muted-foreground py-2">Loading...</div>
+                )}
               </div>
 
               {isThirdCountry && !canPurchase && (

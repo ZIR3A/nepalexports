@@ -19,6 +19,7 @@ export default function AdminSidebar() {
         { id: "orders", label: "Orders", icon: Package },
         { id: "products", label: "Products", icon: Grid },
         { id: "categories", label: "Categories", icon: FolderTree },
+        { id: "warehouses", label: "Warehouses", icon: MapPin },
         { id: "customers", label: "Customers", icon: User },
       ]
     },

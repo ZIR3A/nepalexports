@@ -14,7 +14,10 @@ export async function GET(req) {
     const category = searchParams.get('category');
     const flashSale = searchParams.get('flashSale');
     const admin = searchParams.get('admin');
-    const warehouseId = searchParams.get('warehouseId');
+    
+    // Check header first for global storefront, fallback to query param
+    const warehouseHeader = req.headers.get('x-warehouse-id');
+    const activeWarehouseId = warehouseHeader || searchParams.get('warehouseId');
     const countryCode = searchParams.get('countryCode');
     
     const query = {};
@@ -37,6 +40,16 @@ export async function GET(req) {
         query.pricing = {
           $elemMatch: { country: countryCode, isActive: true }
         };
+      }
+      
+      // Strict Warehouse filtering: Only show products with qty > 0 in this warehouse
+      if (activeWarehouseId) {
+        const localInventory = await Inventory.find({ 
+          warehouse: activeWarehouseId, 
+          quantity: { $gt: 0 } 
+        }).select('product');
+        const inStockProductIds = localInventory.map(inv => inv.product);
+        query._id = { $in: inStockProductIds };
       }
     }
 
@@ -93,12 +106,12 @@ export async function GET(req) {
       });
     }
 
-    // If warehouseId is provided (storefront mode), filter to only products
+    // If activeWarehouseId is provided (storefront mode), filter to only products
     // that have stock > 0 in the user's assigned warehouse
-    if (warehouseId && admin !== 'true') {
+    if (activeWarehouseId && admin !== 'true') {
       // Fetch all inventory for this warehouse
       const warehouseInventory = await Inventory.find({
-        warehouse: warehouseId,
+        warehouse: activeWarehouseId,
         quantity: { $gt: 0 },
       });
 
@@ -138,7 +151,7 @@ export async function GET(req) {
     return NextResponse.json(plainProducts);
   } catch (error) {
     console.error('Fetch Products Error:', error);
-    return NextResponse.json({ message: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ message: 'Internal server error', error: error.message, stack: error.stack }, { status: 500 });
   }
 }
 

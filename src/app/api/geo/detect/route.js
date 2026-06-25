@@ -8,27 +8,31 @@ export async function GET(req) {
   try {
     await connectToDatabase();
 
-    // Check for manual country override
     const { searchParams } = new URL(req.url);
     const manualCountry = searchParams.get('country');
+    const manualWarehouseId = searchParams.get('warehouseId');
 
+    let warehouse = null;
     let detectedCountryCode = null;
 
-    if (manualCountry) {
-      // Manual override — skip IP detection
+    if (manualWarehouseId) {
+      warehouse = await Warehouse.findById(manualWarehouseId);
+      if (!warehouse) {
+        return NextResponse.json({ error: 'Warehouse not found' }, { status: 404 });
+      }
+      // Extract from warehouse
+      detectedCountryCode = warehouse.countryCode;
+    } else if (manualCountry) {
       detectedCountryCode = manualCountry.toUpperCase();
     } else {
-      // 1. Try to get IP from headers (works behind proxies / Vercel)
       const forwarded = req.headers.get('x-forwarded-for');
       const ip = forwarded ? forwarded.split(',')[0].trim() : '127.0.0.1';
-
-      // 2. Attempt IP-based geolocation (skip for localhost/private IPs)
       const isPrivateIp = ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168.') || ip.startsWith('10.');
       
       if (!isPrivateIp) {
         try {
           const geoRes = await fetch(`http://ip-api.com/json/${ip}?fields=status,countryCode`, {
-            signal: AbortSignal.timeout(3000), // 3s timeout
+            signal: AbortSignal.timeout(3000),
           });
           const geoData = await geoRes.json();
           if (geoData.status === 'success') {
@@ -40,59 +44,58 @@ export async function GET(req) {
       }
     }
 
-    // 3. Get region config (handles third-country fallback automatically)
-    const regionConfig = getRegionConfig(detectedCountryCode);
+    if (!warehouse) {
+      const regionConfig = getRegionConfig(detectedCountryCode);
+      if (regionConfig.isThirdCountry) {
+        warehouse = await Warehouse.findOne({
+          isDefaultInternational: true,
+          status: 'Active',
+        });
+        if (!warehouse) {
+          warehouse = await Warehouse.findOne({
+            name: THIRD_COUNTRY_CONFIG.defaultWarehouseName,
+            status: 'Active',
+          });
+        }
+      } else {
+        warehouse = await Warehouse.findOne({
+          countryCode: regionConfig.countryCode,
+          status: 'Active',
+        });
+      }
+      
+      if (!warehouse) {
+        return NextResponse.json({
+          error: 'No warehouse available for your region',
+          detectedCountry: detectedCountryCode,
+        }, { status: 404 });
+      }
+    }
 
-    // Fetch tax rate from RegionSettings
+    // Now we have the warehouse, we can determine final outputs
+    const currency = warehouse.currency || 'GBP';
+    // Mapping symbols
+    const symbolMap = { 'NPR': 'रु', 'GBP': '£', 'USD': '$', 'EUR': '€' };
+    const currencySymbol = symbolMap[currency] || '£';
+
     let taxRate = 0;
-    const regionDb = await RegionSettings.findOne({ countryCode: regionConfig.countryCode });
+    const regionDb = await RegionSettings.findOne({ countryCode: warehouse.countryCode });
     if (regionDb) {
       taxRate = regionDb.taxRate;
     }
 
-    // 4. Find the warehouse to assign
-    let warehouse = null;
-    
-    if (regionConfig.isThirdCountry) {
-      // Third-country: assign to default international warehouse
-      warehouse = await Warehouse.findOne({
-        isDefaultInternational: true,
-        isActive: true,
-      });
-      // Fallback if no warehouse marked as default international
-      if (!warehouse) {
-        warehouse = await Warehouse.findOne({
-          name: THIRD_COUNTRY_CONFIG.defaultWarehouseName,
-          isActive: true,
-        });
-      }
-    } else {
-      // Direct country match
-      warehouse = await Warehouse.findOne({
-        countryCode: regionConfig.countryCode,
-        isActive: true,
-      });
-    }
-
-    if (!warehouse) {
-      return NextResponse.json({
-        error: 'No warehouse available for your region',
-        detectedCountry: detectedCountryCode,
-      }, { status: 404 });
-    }
-
     return NextResponse.json({
-      detectedCountryCode: detectedCountryCode,
-      countryCode: regionConfig.countryCode,
-      countryName: regionConfig.countryName,
+      detectedCountryCode: detectedCountryCode || warehouse.countryCode,
+      countryCode: warehouse.countryCode,
+      countryName: warehouse.country || warehouse.name,
       warehouseId: warehouse._id,
       warehouseName: warehouse.name,
-      currency: regionConfig.currency,
-      currencySymbol: regionConfig.currencySymbol,
+      currency: currency,
+      currencySymbol: currencySymbol,
       taxRate,
-      isThirdCountry: regionConfig.isThirdCountry,
-      thirdCountryMode: regionConfig.thirdCountryMode,
-      canPurchase: regionConfig.canPurchase,
+      isThirdCountry: warehouse.isDefaultInternational,
+      thirdCountryMode: warehouse.isDefaultInternational ? 'International Delivery' : null,
+      canPurchase: warehouse.status === 'Active',
     });
 
   } catch (error) {

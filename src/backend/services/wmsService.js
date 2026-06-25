@@ -27,14 +27,14 @@ export async function resolveWarehouse(warehouseCode) {
   const code = warehouseCode.toUpperCase();
   
   // Try countryCode first
-  let warehouse = await Warehouse.findOne({ countryCode: code, isActive: true });
-  
-  // Fallback: try matching name patterns
+  let warehouse = await Warehouse.findOne({ countryCode: code, status: 'Active' });
+
+  // 2. Fallback to default
   if (!warehouse) {
-    if (code === 'UK' || code === 'GB') {
-      warehouse = await Warehouse.findOne({ name: /uk/i, isActive: true });
-    } else if (code === 'NP') {
-      warehouse = await Warehouse.findOne({ name: /nepal/i, isActive: true });
+    if (code === 'GB') {
+      warehouse = await Warehouse.findOne({ name: /uk/i, status: 'Active' });
+    } else {
+      warehouse = await Warehouse.findOne({ name: /nepal/i, status: 'Active' });
     }
   }
 

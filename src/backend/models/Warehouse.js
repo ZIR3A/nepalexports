@@ -7,6 +7,13 @@ const WarehouseSchema = new mongoose.Schema({
     trim: true,
     unique: true
   },
+  code: {
+    type: String,
+    required: true,
+    unique: true,
+    uppercase: true,
+    trim: true
+  },
   country: {
     type: String,
     required: true, // e.g., 'Nepal', 'United Kingdom'
@@ -25,6 +32,7 @@ const WarehouseSchema = new mongoose.Schema({
   currency: {
     type: String,
     required: true, // e.g., 'NPR', 'GBP'
+    enum: ['GBP', 'NPR', 'USD', 'EUR']
   },
   address: {
     street: { type: String },
@@ -36,15 +44,25 @@ const WarehouseSchema = new mongoose.Schema({
       coordinates: { type: [Number] } // [longitude, latitude]
     }
   },
-  manager: {
+  geofenceRadiusKM: {
+    type: Number,
+    default: 50
+  },
+  capabilities: [{
+    type: String,
+    enum: ['Standard', 'Refrigerated', 'Frozen'],
+    default: ['Standard']
+  }],
+  managerId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   },
   contactEmail: { type: String, trim: true, lowercase: true },
   contactPhone: { type: String, trim: true },
-  isActive: {
-    type: Boolean,
-    default: true,
+  status: {
+    type: String,
+    enum: ['Active', 'Maintenance', 'Closed'],
+    default: 'Active'
   },
   operatingHours: {
     timezone: { type: String, default: 'UTC' }, // e.g., 'Europe/London'
@@ -60,5 +78,15 @@ const WarehouseSchema = new mongoose.Schema({
     default: false,
   }
 }, { timestamps: true });
+
+// Pre-save hook for isDefaultInternational uniqueness
+WarehouseSchema.pre('save', async function() {
+  if (this.isModified('isDefaultInternational') && this.isDefaultInternational) {
+    await this.constructor.updateMany(
+      { _id: { $ne: this._id } },
+      { $set: { isDefaultInternational: false } }
+    );
+  }
+});
 
 export default mongoose.models.Warehouse || mongoose.model('Warehouse', WarehouseSchema);
